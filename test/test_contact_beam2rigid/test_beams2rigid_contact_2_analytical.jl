@@ -46,7 +46,7 @@ initial_angular_velocities,
 initial_angular_accelerations, 
 plane
 )
-beams = Beams(nodes, connectivity, E, ν, ρ, radius, damping)
+beams = ElasticBeams(nodes, connectivity, E, ν, ρ, radius, damping)
 
 #----------------------------------
 # BEAMS CONFIGURATION DEFINITIONS
