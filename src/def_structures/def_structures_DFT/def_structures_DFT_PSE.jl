@@ -1,0 +1,34 @@
+#----------------------------------
+# Structures to store the state of the DFT beam
+# (Composite between plastic outer fibers + superelastic inner tube)
+
+#----------------------------------
+struct DFT_PSE_States
+    superelasticⁿ::SuperelasticState   # Superelastic state at the current time step
+    superelasticⁿ⁺¹::SuperelasticState # Superelastic state at the next time step
+    Plasticⁿ::PlasticState             # Plastic state at the current time step
+    Plasticⁿ⁺¹::PlasticState           # Plastic state at the next time step
+end
+
+#----------------------------------
+# Functions to initialize the DFT structures
+#----------------------------------
+
+function DFT_PSE_States(params::SimulationParams)
+    nG = params.nᴳ_beams
+    # Outer (superelastic) integration uses trapezoidal grid in (r, θ)
+    n_outer = (params.Nr + 1) * (params.Nθ + 1)
+    n_total_outer = nG * n_outer
+
+    # Inner (plastic) integration uses section quadrature (nˢ × nˢ)
+    n_inner = params.nˢ_beams * params.nˢ_beams
+    n_total_inner = nG * n_inner
+
+    superelasticⁿ = SuperelasticState(zeros(n_total_inner), zeros(n_total_inner), zeros(n_total_inner), zeros(n_total_inner), zeros(n_total_inner), zeros(3, n_total_inner), zeros(3, n_total_inner))
+    superelasticⁿ⁺¹ = deepcopy(superelasticⁿ)
+
+    Plasticⁿ = PlasticState(zeros(3, n_total_outer), zeros(3, n_total_outer), zeros(3, n_total_outer), zeros(n_total_outer), zeros(n_total_outer))
+    Plasticⁿ⁺¹ = deepcopy(Plasticⁿ)
+
+    return DFT_PSE_States(superelasticⁿ, superelasticⁿ⁺¹, Plasticⁿ, Plasticⁿ⁺¹)
+end

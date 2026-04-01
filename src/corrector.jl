@@ -15,7 +15,15 @@ function corrector!(conf::SimulationConfiguration, state::SimulationState, param
     while (res_norm > tolerance_residual || ΔD_norm > tolerance_displacement) && k ≤ max_iterations
 
         # Assemble element contributions to the stiffness matrix and residuals
-        @timeit_debug "Assemble" assemble!(conf, state, params)
+        @timeit_debug "Assemble" local_newton_converged = assemble!(conf, state, params)
+
+        # Signal non-convergence of the local Newton to trigger time step reduction
+        if !local_newton_converged
+            params.verbose && printstyled("  Local Newton for superelastic did not converge, reducing time step...\n"; color = :yellow)
+            release!(solver)
+            return max_iterations + 1  # Signal non-convergence
+        end
+
         if isa(inter, MultiRigidInteraction)
             for ri in inter.interactions
                 @timeit_debug "Assemble Contact" assemble_contact!(conf, state, ri.master, ri.slave, ri.properties, ri, params)

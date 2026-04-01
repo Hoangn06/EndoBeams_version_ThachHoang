@@ -92,12 +92,62 @@ function Energy()
     return Energy(0.0, 0.0, 0.0)
 end
 
-# Structure to store the state of the system at different time steps
-struct SimulationState 
-    forcesⁿ::Forces          # Forces at the current time step for the system
-    forcesⁿ⁺¹::Forces        # Forces at the next time step  for the system
-    matricesⁿ::Matrices      # Matrices at the next time step  for the system
-    matricesⁿ⁺¹::Matrices    # Matrices at the current time step for the system
-    solⁿ⁺¹::Solution         # Solution for the system
-    energyⁿ⁺¹::Energy        # Energy state for the system
-end 
+# Union of all per-beam constitutive state objects (linear elastic beams have no entry in the dict).
+const NonlinearMaterialState = Union{
+    SuperelasticStates, PlasticStates,
+    DFT_SEP_States, DFT_EP_States, DFT_PSE_States, DFT_PP_States, DFT_PE_States,
+}
+
+struct BeamMaterialStates
+    by_beam::Dict{Int, NonlinearMaterialState}
+end
+
+
+struct SimulationState
+    forcesⁿ::Forces
+    forcesⁿ⁺¹::Forces
+    matricesⁿ::Matrices
+    matricesⁿ⁺¹::Matrices
+    solⁿ⁺¹::Solution
+    energyⁿ⁺¹::Energy
+    material_states::BeamMaterialStates
+end
+
+function SimulationState(conf::BeamsConfiguration, params::SimulationParams)
+    ndofs = conf.ndofs
+    free_dofs = conf.bcs.free_dofs
+
+    # Allocate state variables for beams
+    forcesⁿ = Forces(conf)
+    forcesⁿ⁺¹ = deepcopy(forcesⁿ)
+    matricesⁿ, solutionⁿ⁺¹ = sparse_matrices_beams!(conf)
+    matricesⁿ⁺¹ = deepcopy(matricesⁿ)
+    energyⁿ⁺¹ = Energy()
+    material_states = BeamMaterialStates(conf, params)
+
+    return SimulationState(forcesⁿ, forcesⁿ⁺¹, matricesⁿ, matricesⁿ⁺¹, solutionⁿ⁺¹, energyⁿ⁺¹, material_states)
+end
+
+# Function to create the appropriate material state for a given beam
+function material_state_for_beam(material::Symbol, params::SimulationParams)
+    material == :superelastic && return SuperelasticStates(params)
+    material == :plastic && return PlasticStates(params)
+    material == :DFT_SEP && return DFT_SEP_States(params)
+    material == :DFT_EP && return DFT_EP_States(params)
+    material == :DFT_PSE && return DFT_PSE_States(params)
+    material == :DFT_PP && return DFT_PP_States(params)
+    material == :DFT_PE && return DFT_PE_States(params)
+    return nothing
+end
+
+# Function to create state for all beams
+function BeamMaterialStates(conf::BeamsConfiguration, params::SimulationParams)
+    d = Dict{Int, NonlinearMaterialState}()
+    for beam in LazyRows(conf.beams)
+        st = material_state_for_beam(beam.material, params)
+        if st !== nothing
+            d[beam.ind] = st
+        end
+    end
+    return BeamMaterialStates(d)
+end

@@ -13,7 +13,16 @@ function run_simulation!(conf::SimulationConfiguration, params::SimulationParams
     end 
 
     # Setup variables for the solver and for the visualization 
-    state, vtkdata = setup_state_simulation(conf, inter, output_dir)
+    state, vtkdata = setup_state_simulation(conf, params, inter, output_dir)
+
+    # Initialize rotation storage for tracking converged rotations
+    rotation_storage = RotationStorage()
+    
+    # Initialize displacement storage for tracking converged displacements
+    displacement_storage = DisplacementStorage()
+    
+    # Initialize stress/strain VM storage for tracking stress and strain values
+    stress_strain_storage = StressStrainStorage()
 
     # Setup the linear solver 
     solver = init(:MKL)     
@@ -97,7 +106,11 @@ function run_simulation!(conf::SimulationConfiguration, params::SimulationParams
         end
         
         # Update the system to the converged state for the next time step
-        update_converged!(conf, state)
+        update_converged!(conf, state; t=tⁿ⁺¹,
+            rotation_storage=rotation_storage,
+            displacement_storage=displacement_storage,
+            stress_strain_storage=stress_strain_storage,
+        )
 
         # Advance to the next time step
         tⁿ = tⁿ⁺¹
@@ -110,6 +123,19 @@ function run_simulation!(conf::SimulationConfiguration, params::SimulationParams
         end
         
     end 
+
+    # Write rotation data to CSV file at the end of simulation
+    output_file = joinpath(output_dir, "rotation_data.csv")
+    write_rotation_data(rotation_storage, output_file)
+    
+    # Write displacement data to CSV file at the end of simulation
+    disp_output_file = joinpath(output_dir, "displacement_data.csv")
+    write_displacement_data(displacement_storage, disp_output_file)
+    
+    # Write stress/strain VM data to CSV file at the end of simulation
+    stress_strain_output_file = joinpath(output_dir, "stress_strain_data.csv")
+    write_stress_strain_data(stress_strain_storage, stress_strain_output_file)
+    
     
     # Show sections time
     if record_timings

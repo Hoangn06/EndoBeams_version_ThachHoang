@@ -168,7 +168,7 @@ function recompute_at_gausspts_beams!(vtkdata, nodes, beams)
             vtkdata.displacement[k] = N₁ * u₁ + N₂ * u₂
             vtkdata.velocity[k] = N₁ * u̇₁ + N₂ * u̇₂
             vtkdata.strain[k] = 1 - lₙ / l₀
-            vtkdata.stress[k] = beams[bi].properties.E * (1 - lₙ / l₀)
+            #vtkdata.stress[k] = beams[bi].properties.E * (1 - lₙ / l₀)
 
         end
     end

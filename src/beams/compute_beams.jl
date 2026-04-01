@@ -1,4 +1,4 @@
-function compute_beams(u₁, u₂, R₁, R₂, ΔR₁, ΔR₂, u̇₁, u̇₂, ẇ₁, ẇ₂, ü₁, ü₂, ẅ₁, ẅ₂, constants, exact=true, isdynamic=true) 
+function compute_beams(u₁, u₂, R₁, R₂, ΔR₁, ΔR₂, u̇₁, u̇₂, ẇ₁, ẇ₂, ü₁, ü₂, ẅ₁, ẅ₂, constants,material, superelastic_state, plastic_state, DFT_SEP_state, DFT_EP_state, DFT_PSE_state, DFT_PP_state, DFT_PE_state, exact=true, isdynamic=false, beam_ind::Int=0) 
 
     # Superscript ¹ means matrix or vector associated to u₁
     # Superscript ² means matrix or vector associated to Θ₁
@@ -7,8 +7,56 @@ function compute_beams(u₁, u₂, R₁, R₂, ΔR₁, ΔR₂, u̇₁, u̇₂, w
 
     init, gauss_params, beamproperties = constants
     X₁, X₂, l₀, Rₑ⁰ = init
-    nᴳ, ωᴳ, zᴳ = gauss_params
-    @unpack K̄ⁱⁿᵗ, Jᵨ, Aᵨ, damping = beamproperties
+    nᴳ, ωᴳ, zᴳ, nˢ, qˢ, rˢ, tˢ, wˢ, Nr, Nθ = gauss_params
+
+    if material == :elastic
+        @unpack K̄ⁱⁿᵗ, Jᵨ, Aᵨ, damping = beamproperties
+    elseif material == :superelastic
+        @unpack radius, Eᴬ, Eᴹ, Gᴬ, Gᴹ, ν,
+             εL, α, 
+             R_s_SA, R_s_AS, R_f_SA, R_f_AS, 
+             K̄ⁱⁿᵗ, Jᵨ, Aᵨ, damping = beamproperties
+    elseif material == :plastic
+        @unpack radius, E, G, ν,
+             y0, K,
+             K̄ⁱⁿᵗ, Jᵨ, Aᵨ, damping = beamproperties
+    elseif material == :DFT_SEP
+        @unpack radius,
+             Eᴬ, Eᴹ, ν, Gᴬ, Gᴹ,
+             εL, α, 
+             R_s_SA, R_s_AS, R_f_SA, R_f_AS, 
+             radius_inner,
+             E_inner, ν_inner, G_inner, y0, K,
+             K̄ⁱⁿᵗ_outer, Jᵨ, Aᵨ, damping,
+             zθ, wθ, zr, wr = beamproperties
+    elseif material == :DFT_EP
+        @unpack radius, E_outer, ν_outer, G_outer,
+             radius_inner,
+             E_inner, ν_inner, G_inner, y0, K,
+             K̄ⁱⁿᵗ_outer, Jᵨ, Aᵨ, damping = beamproperties
+    elseif material == :DFT_PSE
+        @unpack radius,
+             E_outer, ν_outer, G_outer, y0, K,
+             radius_inner,
+             Eᴬ, Eᴹ, ν_inner, Gᴬ, Gᴹ,
+             εL, α, 
+             R_s_SA, R_s_AS, R_f_SA, R_f_AS, 
+             K̄ⁱⁿᵗ_inner, Jᵨ, Aᵨ, damping,
+             zθ, wθ, zr, wr = beamproperties
+    elseif material == :DFT_PP
+        @unpack radius,
+             E_outer, ν_outer, G_outer, y0_outer, K_outer,
+             radius_inner,
+             E_inner, ν_inner, G_inner, y0_inner, K_inner,
+             Jᵨ, Aᵨ, damping,
+             zθ, wθ, zr, wr = beamproperties
+    elseif material == :DFT_PE
+        @unpack E_outer, ν_outer, G_outer, y0, K,
+             E_inner, ν_inner, G_inner,
+             K̄ⁱⁿᵗ_inner, Jᵨ, Aᵨ, damping,
+             zθ, wθ, zr, wr = beamproperties
+    end
+
     
     x₁ =  X₁ + u₁
     x₂ =  X₂ + u₂
@@ -54,110 +102,96 @@ function compute_beams(u₁, u₂, R₁, R₂, ΔR₁, ΔR₂, u̇₁, u̇₂, w
     B²¹ = exact ?  Tₛ⁻¹Θ̅₂ * B̄⁺²¹ : B̄⁺²¹
     B²² = exact ?  Tₛ⁻¹Θ̅₂ * B̄⁺²² : B̄⁺²²
     B²⁴ = exact ?  Tₛ⁻¹Θ̅₂ * B̄⁺²⁴ : B̄⁺²⁴
-
-    K̄ⁱⁿᵗū, K̄ⁱⁿᵗΘ̅, K̄ⁱⁿᵗΘ̅Θ̅ = K̄ⁱⁿᵗ
-
-    # T̄ⁱⁿᵗ = K̄ⁱⁿᵗ D̄
-    T̄ⁱⁿᵗū  = K̄ⁱⁿᵗū  * ū
-    T̄ⁱⁿᵗΘ̅₁ = K̄ⁱⁿᵗΘ̅  * Θ̅₁ + K̄ⁱⁿᵗΘ̅Θ̅ * Θ̅₂
-    T̄ⁱⁿᵗΘ̅₂ = K̄ⁱⁿᵗΘ̅Θ̅ * Θ̅₁ + K̄ⁱⁿᵗΘ̅  * Θ̅₂
-
-    strain_energy = (ū*T̄ⁱⁿᵗū + dot(Θ̅₁, T̄ⁱⁿᵗΘ̅₁) + dot(Θ̅₂, T̄ⁱⁿᵗΘ̅₂))/2
-
-    # Tⁱⁿᵗ = Bᵀ T̄ⁱⁿᵗ
-    Tⁱⁿᵗ¹ = B¹'*T̄ⁱⁿᵗū + B¹¹'*T̄ⁱⁿᵗΘ̅₁ + B²¹'*T̄ⁱⁿᵗΘ̅₂
-    Tⁱⁿᵗ² =             B¹²'*T̄ⁱⁿᵗΘ̅₁ + B²²'*T̄ⁱⁿᵗΘ̅₂
-    Tⁱⁿᵗ³ = -Tⁱⁿᵗ¹
-    Tⁱⁿᵗ⁴ =             B¹⁴'*T̄ⁱⁿᵗΘ̅₁ + B²⁴'*T̄ⁱⁿᵗΘ̅₂
-
-    # Force
-    Tⁱⁿᵗ = [Tⁱⁿᵗ¹; Tⁱⁿᵗ²; Tⁱⁿᵗ³; Tⁱⁿᵗ⁴]
-
-    # [N̄ M̄⁺₁ M̄⁺₂] = B̄ᵀ T̄ⁱⁿᵗ
-    N̄   = T̄ⁱⁿᵗū
-    M̄⁺₁ = exact ? Tₛ⁻¹Θ̅₁' * T̄ⁱⁿᵗΘ̅₁  : T̄ⁱⁿᵗΘ̅₁
-    M̄⁺₂ = exact ? Tₛ⁻¹Θ̅₂' * T̄ⁱⁿᵗΘ̅₂  : T̄ⁱⁿᵗΘ̅₂
-
-    # Qₛ = Pᵀ [M̄⁺₁ M̄⁺₂]
-    Qₛ¹ = P¹¹' * M̄⁺₁ + P²¹' * M̄⁺₂
-    Qₛ² = P¹²' * M̄⁺₁ + P²²' * M̄⁺₂
-    Qₛ⁴ = P¹⁴' * M̄⁺₁ + P²⁴' * M̄⁺₂
     
-    # Q = S(Qₛ)
-    Q¹ = skew(Qₛ¹)
-    Q² = skew(Qₛ²)
-    Q⁴ = skew(Qₛ⁴)
+    local_converged = true  # Track local Newton convergence (only relevant for superelastic)
+    
+    if material == :elastic
+        Tⁱⁿᵗ, Kⁱⁿᵗ, strain_energy = compute_elastic_contributions(
+            K̄ⁱⁿᵗ, ū, Θ̅₁, Θ̅₂, B¹, B¹¹, B²¹, B¹², B²², B¹⁴, B²⁴, exact, Tₛ⁻¹Θ̅₁, Tₛ⁻¹Θ̅₂,
+            P¹¹, P²¹, P¹², P²², P¹⁴, P²⁴, η, lₙ, D₃, Gᵀ¹, Gᵀ², Gᵀ⁴, Rₑ, r¹,
+            B̄⁺¹¹, B̄⁺²¹, B̄⁺¹², B̄⁺²², B̄⁺¹⁴, B̄⁺²⁴
+        )
+    elseif material == :superelastic
+        Tⁱⁿᵗ, Kⁱⁿᵗ, strain_energy, local_converged = compute_superelastic_contributions( 
+            K̄ⁱⁿᵗ, ū, Θ̅₁, Θ̅₂, B¹, B¹¹, B²¹, B¹², B²², B¹⁴, B²⁴, exact, Tₛ⁻¹Θ̅₁, Tₛ⁻¹Θ̅₂,
+            P¹¹, P²¹, P¹², P²², P¹⁴, P²⁴, η, lₙ, D₃, Gᵀ¹, Gᵀ², Gᵀ⁴, Rₑ, r¹,
+            B̄⁺¹¹, B̄⁺²¹, B̄⁺¹², B̄⁺²², B̄⁺¹⁴, B̄⁺²⁴,
+            radius,
+            Eᴬ, Eᴹ, Gᴬ, Gᴹ, εL, α, R_s_AS, R_s_SA, R_f_AS, R_f_SA, l₀, nᴳ, zᴳ, ωᴳ, nˢ, qˢ, rˢ, tˢ, wˢ,
+            superelastic_state, beam_ind
+        )
+    elseif material == :plastic
+        Tⁱⁿᵗ, Kⁱⁿᵗ, strain_energy, local_converged = compute_plastic_contributions( 
+            K̄ⁱⁿᵗ, ū, Θ̅₁, Θ̅₂, B¹, B¹¹, B²¹, B¹², B²², B¹⁴, B²⁴, exact, Tₛ⁻¹Θ̅₁, Tₛ⁻¹Θ̅₂,
+            P¹¹, P²¹, P¹², P²², P¹⁴, P²⁴, η, lₙ, D₃, Gᵀ¹, Gᵀ², Gᵀ⁴, Rₑ, r¹,
+            B̄⁺¹¹, B̄⁺²¹, B̄⁺¹², B̄⁺²², B̄⁺¹⁴, B̄⁺²⁴,
+            radius,
+            E, G, ν, y0, K, l₀, nᴳ, zᴳ, ωᴳ, nˢ, qˢ, rˢ, tˢ, wˢ,
+            plastic_state, beam_ind
+        )
 
-    a = @SVector [0, η*(M̄⁺₁[1] + M̄⁺₂[1])/lₙ + (M̄⁺₁[2] + M̄⁺₂[2])/lₙ, (M̄⁺₁[3] + M̄⁺₂[3])/lₙ]
+    elseif material == :DFT_SEP
 
-    # DN̄ (DN̄¹¹ = DN̄³³ = -DN̄¹³ = -DN̄³¹)
-    DN̄¹¹ = D₃*N̄
+        Tⁱⁿᵗ, Kⁱⁿᵗ, strain_energy, local_converged = compute_DFT_SEP_contributions( 
+            K̄ⁱⁿᵗ_outer, ū, Θ̅₁, Θ̅₂, B¹, B¹¹, B²¹, B¹², B²², B¹⁴, B²⁴, exact, Tₛ⁻¹Θ̅₁, Tₛ⁻¹Θ̅₂,
+            P¹¹, P²¹, P¹², P²², P¹⁴, P²⁴, η, lₙ, D₃, Gᵀ¹, Gᵀ², Gᵀ⁴, Rₑ, r¹,
+            B̄⁺¹¹, B̄⁺²¹, B̄⁺¹², B̄⁺²², B̄⁺¹⁴, B̄⁺²⁴,
+            radius, radius_inner,
+            Eᴬ, Eᴹ, Gᴬ, Gᴹ, εL, α, R_s_AS, R_s_SA, R_f_AS, R_f_SA,
+            E_inner, G_inner, ν_inner, y0, K,
+            l₀, nᴳ, zᴳ, ωᴳ, nˢ, qˢ, rˢ, tˢ, wˢ,
+            zθ, wθ, zr, wr,
+            DFT_SEP_state, beam_ind
+        )
 
-    #QGᵀ
-    QGᵀ¹¹ = Q¹*Gᵀ¹
-    QGᵀ¹² = Q¹*Gᵀ²
-    QGᵀ¹⁴ = Q¹*Gᵀ⁴
-    QGᵀ²² = Q²*Gᵀ²
-    QGᵀ²⁴ = Q²*Gᵀ⁴
-    QGᵀ⁴⁴ = Q⁴*Gᵀ⁴
+    elseif material == :DFT_EP
+        Tⁱⁿᵗ, Kⁱⁿᵗ, strain_energy, local_converged = compute_DFT_EP_contributions( 
+            K̄ⁱⁿᵗ_outer, ū, Θ̅₁, Θ̅₂, B¹, B¹¹, B²¹, B¹², B²², B¹⁴, B²⁴, exact, Tₛ⁻¹Θ̅₁, Tₛ⁻¹Θ̅₂,
+            P¹¹, P²¹, P¹², P²², P¹⁴, P²⁴, η, lₙ, D₃, Gᵀ¹, Gᵀ², Gᵀ⁴, Rₑ, r¹,
+            B̄⁺¹¹, B̄⁺²¹, B̄⁺¹², B̄⁺²², B̄⁺¹⁴, B̄⁺²⁴,
+            radius, radius_inner,
+            E_inner, G_inner, ν_inner, y0, K,
+            l₀, nᴳ, zᴳ, ωᴳ, nˢ, qˢ, rˢ, tˢ, wˢ,
+            DFT_EP_state, beam_ind
+        )
 
-    # EGa (diagonal)
-    # Note: Rₑ*Ga = 0 for Θ indices because Rₑ*GᵀΘ' has only non-zero values in the first column and a = [0 ...]
-    EGa¹ = Rₑ*Gᵀ¹'*a
-
-    # EGar (EGar¹¹ = EGar³³ = -EGar³¹ = -EGar¹³)
-    EGar¹¹ = EGa¹*r¹
-
-    # Kₘ = DN̄ - EQGᵀEᵀ + EGar
-    Kₘ¹¹ = DN̄¹¹ - Rₑ*QGᵀ¹¹*Rₑ' + EGar¹¹
-    Kₘ¹² =      - Rₑ*QGᵀ¹²*Rₑ'
-    Kₘ¹⁴ =      - Rₑ*QGᵀ¹⁴*Rₑ'
-    Kₘ²² =      - Rₑ*QGᵀ²²*Rₑ'
-    Kₘ²⁴ =      - Rₑ*QGᵀ²⁴*Rₑ'
-    Kₘ⁴⁴ =      - Rₑ*QGᵀ⁴⁴*Rₑ'
-
-    # K̃
-    if exact
-        η₁, μ₁ = compute_η_μ(Θ̅₁)
-        η₂, μ₂ = compute_η_μ(Θ̅₂)
-
-        M̄₁ = T̄ⁱⁿᵗΘ̅₁
-        M̄₂ = T̄ⁱⁿᵗΘ̅₂
-
-        K̄ₕ₁ = compute_K̄ₕ(Θ̅₁, M̄₁, Tₛ⁻¹Θ̅₁, η₁, μ₁)
-        K̄ₕ₂ = compute_K̄ₕ(Θ̅₂, M̄₂, Tₛ⁻¹Θ̅₂, η₂, μ₂)
+    elseif material == :DFT_PSE
+        Tⁱⁿᵗ, Kⁱⁿᵗ, strain_energy, local_converged = compute_DFT_PSE_contributions( 
+            K̄ⁱⁿᵗ_inner, ū, Θ̅₁, Θ̅₂, B¹, B¹¹, B²¹, B¹², B²², B¹⁴, B²⁴, exact, Tₛ⁻¹Θ̅₁, Tₛ⁻¹Θ̅₂,
+            P¹¹, P²¹, P¹², P²², P¹⁴, P²⁴, η, lₙ, D₃, Gᵀ¹, Gᵀ², Gᵀ⁴, Rₑ, r¹,
+            B̄⁺¹¹, B̄⁺²¹, B̄⁺¹², B̄⁺²², B̄⁺¹⁴, B̄⁺²⁴,
+            radius, radius_inner,
+            E_outer, ν_outer, G_outer, y0, K,
+            Eᴬ, Eᴹ, ν_inner, Gᴬ, Gᴹ, εL, α, R_s_AS, R_s_SA, R_f_AS, R_f_SA,
+            l₀, nᴳ, zᴳ, ωᴳ, nˢ, qˢ, rˢ, tˢ, wˢ,
+            zθ, wθ, zr, wr,
+            DFT_PSE_state, beam_ind
+        )
+    elseif material == :DFT_PP
+        Tⁱⁿᵗ, Kⁱⁿᵗ, strain_energy, local_converged = compute_DFT_PP_contributions( 
+            ū, Θ̅₁, Θ̅₂, B¹, B¹¹, B²¹, B¹², B²², B¹⁴, B²⁴, exact, Tₛ⁻¹Θ̅₁, Tₛ⁻¹Θ̅₂,
+            P¹¹, P²¹, P¹², P²², P¹⁴, P²⁴, η, lₙ, D₃, Gᵀ¹, Gᵀ², Gᵀ⁴, Rₑ, r¹,
+            B̄⁺¹¹, B̄⁺²¹, B̄⁺¹², B̄⁺²², B̄⁺¹⁴, B̄⁺²⁴,
+            radius, radius_inner,
+            E_outer, ν_outer, G_outer, y0_outer, K_outer,
+            E_inner, ν_inner, G_inner, y0_inner, K_inner,
+            l₀, nᴳ, zᴳ, ωᴳ, nˢ, qˢ, rˢ, tˢ, wˢ,
+            zθ, wθ, zr, wr,
+            DFT_PP_state, beam_ind
+        )
+    elseif material == :DFT_PE
+        Tⁱⁿᵗ, Kⁱⁿᵗ, strain_energy, local_converged = compute_DFT_PE_contributions( 
+            K̄ⁱⁿᵗ_inner, ū, Θ̅₁, Θ̅₂, B¹, B¹¹, B²¹, B¹², B²², B¹⁴, B²⁴, exact, Tₛ⁻¹Θ̅₁, Tₛ⁻¹Θ̅₂,
+            P¹¹, P²¹, P¹², P²², P¹⁴, P²⁴, η, lₙ, D₃, Gᵀ¹, Gᵀ², Gᵀ⁴, Rₑ, r¹,
+            B̄⁺¹¹, B̄⁺²¹, B̄⁺¹², B̄⁺²², B̄⁺¹⁴, B̄⁺²⁴,
+            E_outer, G_outer, ν_outer, y0, K,
+            l₀, nᴳ, zᴳ, ωᴳ, nˢ, qˢ, rˢ, tˢ, wˢ,
+            zθ, wθ, zr, wr,
+            DFT_PE_state, beam_ind
+        )
     end
 
-    K̃¹¹ = exact ?  B̄⁺¹¹' * K̄ₕ₁ * B̄⁺¹¹  +  B̄⁺²¹' * K̄ₕ₂ * B̄⁺²¹  +  Kₘ¹¹   :   Kₘ¹¹ 
-    K̃¹² = exact ?  B̄⁺¹¹' * K̄ₕ₁ * B̄⁺¹²  +  B̄⁺²¹' * K̄ₕ₂ * B̄⁺²²  +  Kₘ¹²   :   Kₘ¹² 
-    K̃¹⁴ = exact ?  B̄⁺¹¹' * K̄ₕ₁ * B̄⁺¹⁴  +  B̄⁺²¹' * K̄ₕ₂ * B̄⁺²⁴  +  Kₘ¹⁴   :   Kₘ¹⁴ 
-    K̃²² = exact ?  B̄⁺¹²' * K̄ₕ₁ * B̄⁺¹²  +  B̄⁺²²' * K̄ₕ₂ * B̄⁺²²  +  Kₘ²²   :   Kₘ²² 
-    K̃²⁴ = exact ?  B̄⁺¹²' * K̄ₕ₁ * B̄⁺¹⁴  +  B̄⁺²²' * K̄ₕ₂ * B̄⁺²⁴  +  Kₘ²⁴   :   Kₘ²⁴ 
-    K̃⁴⁴ = exact ?  B̄⁺¹⁴' * K̄ₕ₁ * B̄⁺¹⁴  +  B̄⁺²⁴' * K̄ₕ₂ * B̄⁺²⁴  +  Kₘ⁴⁴   :   Kₘ⁴⁴ 
-
-    # BᵀKⁱⁿᵗB
-    BᵀKⁱⁿᵗB¹¹ = B¹' * K̄ⁱⁿᵗū * B¹      +      B¹¹' * (K̄ⁱⁿᵗΘ̅ * B¹¹  +  K̄ⁱⁿᵗΘ̅Θ̅ * B²¹)  +  B²¹' * (K̄ⁱⁿᵗΘ̅Θ̅ * B¹¹  +  K̄ⁱⁿᵗΘ̅ * B²¹)    
-    BᵀKⁱⁿᵗB¹² =                              B¹¹' * (K̄ⁱⁿᵗΘ̅ * B¹²  +  K̄ⁱⁿᵗΘ̅Θ̅ * B²²)  +  B²¹' * (K̄ⁱⁿᵗΘ̅Θ̅ * B¹²  +  K̄ⁱⁿᵗΘ̅ * B²²)     
-    BᵀKⁱⁿᵗB¹⁴ =                              B¹¹' * (K̄ⁱⁿᵗΘ̅ * B¹⁴  +  K̄ⁱⁿᵗΘ̅Θ̅ * B²⁴)  +  B²¹' * (K̄ⁱⁿᵗΘ̅Θ̅ * B¹⁴  +  K̄ⁱⁿᵗΘ̅ * B²⁴)    
-        
-    BᵀKⁱⁿᵗB²² =                              B¹²' * (K̄ⁱⁿᵗΘ̅ * B¹²  +  K̄ⁱⁿᵗΘ̅Θ̅ * B²²)  +  B²²' * (K̄ⁱⁿᵗΘ̅Θ̅ * B¹²  +  K̄ⁱⁿᵗΘ̅ * B²²)      
-    BᵀKⁱⁿᵗB²⁴ =                              B¹²' * (K̄ⁱⁿᵗΘ̅ * B¹⁴  +  K̄ⁱⁿᵗΘ̅Θ̅ * B²⁴)  +  B²²' * (K̄ⁱⁿᵗΘ̅Θ̅ * B¹⁴  +  K̄ⁱⁿᵗΘ̅ * B²⁴)      
-        
-    BᵀKⁱⁿᵗB⁴⁴ =                              B¹⁴' * (K̄ⁱⁿᵗΘ̅ * B¹⁴  +  K̄ⁱⁿᵗΘ̅Θ̅ * B²⁴)  +  B²⁴' * (K̄ⁱⁿᵗΘ̅Θ̅ * B¹⁴  +  K̄ⁱⁿᵗΘ̅ * B²⁴)    
-
-    Kⁱⁿᵗ¹¹ =  BᵀKⁱⁿᵗB¹¹   +    K̃¹¹
-    Kⁱⁿᵗ¹² =  BᵀKⁱⁿᵗB¹²   +    K̃¹²
-    Kⁱⁿᵗ¹³ =  -Kⁱⁿᵗ¹¹
-    Kⁱⁿᵗ¹⁴ =  BᵀKⁱⁿᵗB¹⁴   +    K̃¹⁴
-    Kⁱⁿᵗ²² =  BᵀKⁱⁿᵗB²²   +    K̃²²
-    Kⁱⁿᵗ²³ =  -Kⁱⁿᵗ¹²'
-    Kⁱⁿᵗ²⁴ =  BᵀKⁱⁿᵗB²⁴   +    K̃²⁴
-    Kⁱⁿᵗ³³ =  Kⁱⁿᵗ¹¹
-    Kⁱⁿᵗ³⁴ =  -Kⁱⁿᵗ¹⁴
-    Kⁱⁿᵗ⁴⁴ =  BᵀKⁱⁿᵗB⁴⁴   +    K̃⁴⁴
-
-    Kⁱⁿᵗ = hcat(vcat(Kⁱⁿᵗ¹¹, Kⁱⁿᵗ¹²', Kⁱⁿᵗ¹³', Kⁱⁿᵗ¹⁴'), vcat(Kⁱⁿᵗ¹², Kⁱⁿᵗ²², Kⁱⁿᵗ²³', Kⁱⁿᵗ²⁴'), vcat(Kⁱⁿᵗ¹³, Kⁱⁿᵗ²³, Kⁱⁿᵗ³³, Kⁱⁿᵗ³⁴'), vcat(Kⁱⁿᵗ¹⁴, Kⁱⁿᵗ²⁴, Kⁱⁿᵗ³⁴, Kⁱⁿᵗ⁴⁴))
-
+    
     kinetic_energy = zero(Float64)
 
     Tᵏ¹ = zeros(Vec3{Float64})
@@ -533,7 +567,7 @@ function compute_beams(u₁, u₂, R₁, R₂, ΔR₁, ΔR₂, u̇₁, u̇₂, w
         hcat(Cᵏ⁴¹, Cᵏ⁴², Cᵏ⁴³, Cᵏ⁴⁴)
     )
 
-    return strain_energy, kinetic_energy, Tⁱⁿᵗ, Tᵏ, Kⁱⁿᵗ, M, Cᵏ
+    return strain_energy, kinetic_energy, Tⁱⁿᵗ, Tᵏ, Kⁱⁿᵗ, M, Cᵏ, local_converged
 
 end
 

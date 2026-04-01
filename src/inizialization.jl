@@ -14,17 +14,10 @@ function clean_folders(output_dir)
 end 
 
 # Initializes simulation state, pre-allocates memory, and generates initial VTK files.
-function setup_state_simulation(conf::BeamsConfiguration,inter::Union{Nothing, Interaction},   output_dir)
+function setup_state_simulation(conf::BeamsConfiguration,params::SimulationParams, inter::Union{Nothing, Interaction},   output_dir)
  
-    # Allocate state variables for beams
-    forcesⁿ = Forces(conf)
-    forcesⁿ⁺¹ = deepcopy(forcesⁿ)
-    matricesⁿ, solutionⁿ⁺¹ = sparse_matrices_beams!(conf)
-    matricesⁿ⁺¹ = deepcopy(matricesⁿ)
-    energyⁿ⁺¹ = Energy()
-
     # Group beam state variables into a single structure
-    state = SimulationState(forcesⁿ, forcesⁿ⁺¹,matricesⁿ, matricesⁿ⁺¹, solutionⁿ⁺¹, energyⁿ⁺¹)
+    state = SimulationState(conf, params)
 
     # Prepare VTK data for visualization
     vtkdata = VTKDataBeams(conf, output_dir)

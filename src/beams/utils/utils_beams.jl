@@ -40,6 +40,7 @@ end
     p₁ = R₁ * Rₑ⁰E₂
     p₂ = R₂ * Rₑ⁰E₂
 
+
     # Average the projections
     p = (p₁ + p₂) / 2
 

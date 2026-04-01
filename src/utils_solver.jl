@@ -249,8 +249,62 @@ end
 # upon convergence for different configurations.
 # -------------------------------------------------------------------
 
-function update_converged!(conf::BeamsConfiguration, state::SimulationState)
-    
+@inline function copy_superelastic_state!(dst, src)
+    dst.xi_S .= src.xi_S
+    dst.F .= src.F
+    dst.H_AS .= src.H_AS
+    dst.H_SA .= src.H_SA
+    dst.H_SS .= src.H_SS
+    dst.eps .= src.eps
+    dst.sigma .= src.sigma
+    return nothing
+end
+
+@inline function copy_plastic_state!(dst, src)
+    dst.sigma .= src.sigma
+    dst.epsilon .= src.epsilon
+    dst.epsilon_pl .= src.epsilon_pl
+    dst.e_pl .= src.e_pl
+    dst.F .= src.F
+    return nothing
+end
+
+function compute_vm_superelastic(sigma, eps)
+    n_gauss_points = size(sigma, 2)
+    stress_VM = Vector{Float64}(undef, n_gauss_points)
+    strain_VM = Vector{Float64}(undef, n_gauss_points)
+
+    for gp in 1:n_gauss_points
+        sigma_gp = sigma[:, gp]
+        e_gp = deviatoric_tensor(eps[:, gp])
+        stress_VM[gp] = sqrt(sigma_gp[1]^2 + 3 * sigma_gp[2]^2 + 3 * sigma_gp[3]^2)
+        strain_VM[gp] = sqrt(e_gp[1]^2 + 3 * e_gp[2]^2 + 3 * e_gp[3]^2)
+    end
+
+    return stress_VM, strain_VM
+end
+
+function compute_vm_plastic(sigma, epsilon)
+    n_gauss_points = size(sigma, 2)
+    stress_VM = Vector{Float64}(undef, n_gauss_points)
+    strain_VM = Vector{Float64}(undef, n_gauss_points)
+
+    for gp in 1:n_gauss_points
+        sigma_gp = sigma[:, gp]
+        eps_gp = epsilon[:, gp]
+        stress_VM[gp] = sqrt(sigma_gp[1]^2 + 3 * sigma_gp[2]^2 + 3 * sigma_gp[3]^2)
+        strain_VM[gp] = sqrt(eps_gp[1]^2 + 3 * eps_gp[2]^2 + 3 * eps_gp[3]^2)
+    end
+
+    return stress_VM, strain_VM
+end
+
+function update_converged!(conf::BeamsConfiguration, state::SimulationState;
+    t::Float64=0.0,
+    rotation_storage=nothing,
+    displacement_storage=nothing,
+    stress_strain_storage=nothing,
+)
     @inbounds for i in eachindex(conf.nodes)
         # Update nodal displacements, velocities, and accelerations to the converged values
         conf.nodes.uⁿ[i] = conf.nodes.u[i]
@@ -262,6 +316,16 @@ function update_converged!(conf::BeamsConfiguration, state::SimulationState)
         conf.nodes.Rⁿ[i] = conf.nodes.R[i]
         conf.nodes.ΔRⁿ[i] = conf.nodes.ΔR[i]
     end
+
+    # Accumulate rotation data if storage is provided
+    if rotation_storage !== nothing
+        accumulate_rotation_data!(rotation_storage, conf, t)
+    end
+    
+    # Accumulate displacement data if storage is provided
+    if displacement_storage !== nothing
+        accumulate_displacement_data!(displacement_storage, conf, t)
+    end
     
     # Update the force vectors for the current time step
     state.forcesⁿ.Tⁱⁿᵗ .= state.forcesⁿ⁺¹.Tⁱⁿᵗ
@@ -271,6 +335,89 @@ function update_converged!(conf::BeamsConfiguration, state::SimulationState)
     state.matricesⁿ.K .= state.matricesⁿ⁺¹.K
     state.matricesⁿ.C .= state.matricesⁿ⁺¹.C 
     state.matricesⁿ.M .= state.matricesⁿ⁺¹.M
+
+    # Update constitutive states and optionally store VM stress/strain
+    ms = state.material_states.by_beam
+    for beam in LazyRows(conf.beams)
+        if beam.material == :superelastic
+            se_state = ms[beam.ind]::SuperelasticStates
+            copy_superelastic_state!(se_state.superelasticⁿ, se_state.superelasticⁿ⁺¹)
+
+            # Accumulate stress/strain VM data if storage is provided
+            if stress_strain_storage !== nothing
+                stress_VM, strain_VM = compute_vm_superelastic(se_state.superelasticⁿ.sigma, se_state.superelasticⁿ.eps)
+                accumulate_stress_strain_data!(stress_strain_storage, state, t, stress_VM, strain_VM)
+            end
+
+        elseif beam.material == :plastic
+            pl_state = ms[beam.ind]::PlasticStates
+            copy_plastic_state!(pl_state.Plasticⁿ, pl_state.Plasticⁿ⁺¹)
+
+            # Accumulate stress/strain VM data if storage is provided
+            if stress_strain_storage !== nothing
+                stress_VM, strain_VM = compute_vm_plastic(pl_state.Plasticⁿ.sigma, pl_state.Plasticⁿ.epsilon)
+                accumulate_stress_strain_data!(stress_strain_storage, state, t, stress_VM, strain_VM)
+            end
+
+        elseif beam.material == :DFT_SEP
+            dft_sep_state = ms[beam.ind]::DFT_SEP_States
+            copy_superelastic_state!(dft_sep_state.superelasticⁿ, dft_sep_state.superelasticⁿ⁺¹)
+            copy_plastic_state!(dft_sep_state.Plasticⁿ, dft_sep_state.Plasticⁿ⁺¹)
+
+            # Accumulate stress/strain VM data if storage is provided
+            if stress_strain_storage !== nothing
+                stress_outer, strain_outer = compute_vm_superelastic(dft_sep_state.superelasticⁿ.sigma, dft_sep_state.superelasticⁿ.eps)
+                stress_inner, strain_inner = compute_vm_plastic(dft_sep_state.Plasticⁿ.sigma, dft_sep_state.Plasticⁿ.epsilon)
+                stress_VM = vcat(stress_outer, stress_inner)
+                strain_VM = vcat(strain_outer, strain_inner)
+                accumulate_stress_strain_data!(stress_strain_storage, state, t, stress_VM, strain_VM)
+            end
+        elseif beam.material == :DFT_EP
+            dft_ep_state = ms[beam.ind]::DFT_EP_States
+            copy_plastic_state!(dft_ep_state.Plasticⁿ, dft_ep_state.Plasticⁿ⁺¹)
+
+            # Accumulate stress/strain VM data if storage is provided
+            if stress_strain_storage !== nothing
+                stress_VM, strain_VM = compute_vm_plastic(dft_ep_state.Plasticⁿ.sigma, dft_ep_state.Plasticⁿ.epsilon)
+                accumulate_stress_strain_data!(stress_strain_storage, state, t, stress_VM, strain_VM)
+            end
+        elseif beam.material == :DFT_PSE
+            dft_pse_state = ms[beam.ind]::DFT_PSE_States
+            copy_plastic_state!(dft_pse_state.Plasticⁿ, dft_pse_state.Plasticⁿ⁺¹)
+            copy_superelastic_state!(dft_pse_state.superelasticⁿ, dft_pse_state.superelasticⁿ⁺¹)
+
+            # Accumulate stress/strain VM data if storage is provided
+            if stress_strain_storage !== nothing
+                stress_outer, strain_outer = compute_vm_plastic(dft_pse_state.Plasticⁿ.sigma, dft_pse_state.Plasticⁿ.epsilon)
+                stress_inner, strain_inner = compute_vm_superelastic(dft_pse_state.superelasticⁿ.sigma, dft_pse_state.superelasticⁿ.eps)
+                stress_VM = vcat(stress_outer, stress_inner)
+                strain_VM = vcat(strain_outer, strain_inner)
+                accumulate_stress_strain_data!(stress_strain_storage, state, t, stress_VM, strain_VM)
+            end
+        elseif beam.material == :DFT_PP
+            dft_pp_state = ms[beam.ind]::DFT_PP_States
+            copy_plastic_state!(dft_pp_state.Plasticⁿ_outer, dft_pp_state.Plasticⁿ⁺¹_outer)
+            copy_plastic_state!(dft_pp_state.Plasticⁿ_inner, dft_pp_state.Plasticⁿ⁺¹_inner)
+
+            # Accumulate stress/strain VM data if storage is provided
+            if stress_strain_storage !== nothing
+                stress_outer, strain_outer = compute_vm_plastic(dft_pp_state.Plasticⁿ_outer.sigma, dft_pp_state.Plasticⁿ_outer.epsilon)
+                stress_inner, strain_inner = compute_vm_plastic(dft_pp_state.Plasticⁿ_inner.sigma, dft_pp_state.Plasticⁿ_inner.epsilon)
+                stress_VM = vcat(stress_outer, stress_inner)
+                strain_VM = vcat(strain_outer, strain_inner)
+                accumulate_stress_strain_data!(stress_strain_storage, state, t, stress_VM, strain_VM)
+            end
+        elseif beam.material == :DFT_PE
+            dft_pe_state = ms[beam.ind]::DFT_PE_States
+            copy_plastic_state!(dft_pe_state.Plasticⁿ, dft_pe_state.Plasticⁿ⁺¹)
+
+            # Accumulate stress/strain VM data if storage is provided
+            if stress_strain_storage !== nothing
+                stress_VM, strain_VM = compute_vm_plastic(dft_pe_state.Plasticⁿ.sigma, dft_pe_state.Plasticⁿ.epsilon)
+                accumulate_stress_strain_data!(stress_strain_storage, state, t, stress_VM, strain_VM)
+            end
+        end
+    end
     
 end
 
@@ -301,5 +448,35 @@ function update_not_converged!(conf::BeamsConfiguration, state::SimulationState)
     state.matricesⁿ⁺¹.K .= state.matricesⁿ.K
     state.matricesⁿ⁺¹.C .= state.matricesⁿ.C    
     state.matricesⁿ⁺¹.M .= state.matricesⁿ.M
+
+    # Revert constitutive states
+    ms = state.material_states.by_beam
+    for beam in LazyRows(conf.beams)
+        if beam.material == :superelastic
+            se_state = ms[beam.ind]::SuperelasticStates
+            copy_superelastic_state!(se_state.superelasticⁿ⁺¹, se_state.superelasticⁿ)
+        elseif beam.material == :plastic
+            pl_state = ms[beam.ind]::PlasticStates
+            copy_plastic_state!(pl_state.Plasticⁿ⁺¹, pl_state.Plasticⁿ)
+        elseif beam.material == :DFT_SEP
+            dft_sep_state = ms[beam.ind]::DFT_SEP_States
+            copy_superelastic_state!(dft_sep_state.superelasticⁿ⁺¹, dft_sep_state.superelasticⁿ)
+            copy_plastic_state!(dft_sep_state.Plasticⁿ⁺¹, dft_sep_state.Plasticⁿ)
+        elseif beam.material == :DFT_EP
+            dft_ep_state = ms[beam.ind]::DFT_EP_States
+            copy_plastic_state!(dft_ep_state.Plasticⁿ⁺¹, dft_ep_state.Plasticⁿ)
+        elseif beam.material == :DFT_PSE
+            dft_pse_state = ms[beam.ind]::DFT_PSE_States
+            copy_plastic_state!(dft_pse_state.Plasticⁿ⁺¹, dft_pse_state.Plasticⁿ)
+            copy_superelastic_state!(dft_pse_state.superelasticⁿ⁺¹, dft_pse_state.superelasticⁿ)
+        elseif beam.material == :DFT_PP
+            dft_pp_state = ms[beam.ind]::DFT_PP_States
+            copy_plastic_state!(dft_pp_state.Plasticⁿ⁺¹_outer, dft_pp_state.Plasticⁿ_outer)
+            copy_plastic_state!(dft_pp_state.Plasticⁿ⁺¹_inner, dft_pp_state.Plasticⁿ_inner)
+        elseif beam.material == :DFT_PE
+            dft_pe_state = ms[beam.ind]::DFT_PE_States
+            copy_plastic_state!(dft_pe_state.Plasticⁿ⁺¹, dft_pe_state.Plasticⁿ)
+        end
+    end
     
 end

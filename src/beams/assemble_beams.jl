@@ -9,13 +9,16 @@ function assemble!(conf::BeamsConfiguration, state::SimulationState, params::Sim
         fill!(state.forcesⁿ⁺¹.Tᵏ, 0)           # Kinetic force vector
         fill!(state.forcesⁿ⁺¹.Tᶜ, 0)           # Kinetic force vector
     end
+    
+    # Track if all local Newton iterations converged (thread-safe)
+    all_converged = Threads.Atomic{Bool}(true)
 
     # Unpack configuration to retrieve node and beam information
     @unpack nodes, beams = conf
 
     # Unpack information for Gauss points
-    @unpack nᴳ_beams, ωᴳ_beams, zᴳ_beams = params
-    gauss_params  = (nᴳ_beams, ωᴳ_beams, zᴳ_beams)   
+    @unpack nᴳ_beams, ωᴳ_beams, zᴳ_beams, nˢ_beams, qˢ_beams, rˢ_beams, tˢ_beams, wˢ_beams, Nr, Nθ  = params
+    gauss_params  = (nᴳ_beams, ωᴳ_beams, zᴳ_beams, nˢ_beams, qˢ_beams, rˢ_beams, tˢ_beams, wˢ_beams, Nr, Nθ)   
 
     # Loop over all beam beams to compute their contributions
     @batch for beam in LazyRows(beams)
@@ -37,15 +40,33 @@ function assemble!(conf::BeamsConfiguration, state::SimulationState, params::Sim
         # Pack initialization constants for the beam computation
         init = (X₁, X₂, beam.l₀, beam.Rₑ⁰)  # Beam index, geometry, and initial rotation
         constants = (init, gauss_params, beam.properties)
+        material = beam.material                         # Beam material type
+        
+        ms = state.material_states.by_beam
+        superelastic_state = material == :superelastic ? ms[beam.ind]::SuperelasticStates : nothing
+        plastic_state      = material == :plastic      ? ms[beam.ind]::PlasticStates      : nothing
+        DFT_SEP_state      = material == :DFT_SEP      ? ms[beam.ind]::DFT_SEP_States      : nothing
+        DFT_EP_state       = material == :DFT_EP       ? ms[beam.ind]::DFT_EP_States       : nothing
+        DFT_PSE_state      = material == :DFT_PSE      ? ms[beam.ind]::DFT_PSE_States      : nothing
+        DFT_PP_state       = material == :DFT_PP       ? ms[beam.ind]::DFT_PP_States       : nothing
+        DFT_PE_state       = material == :DFT_PE       ? ms[beam.ind]::DFT_PE_States       : nothing
+
 
         # Compute beam-level contributions
-        strain_energy, kinetic_energy, 
-        Tⁱⁿᵗ, Tᵏ, Kⁱⁿᵗ, M, Cᵏ = compute_beams(
+        strain_energy, kinetic_energy,
+        Tⁱⁿᵗ, Tᵏ, Kⁱⁿᵗ, M, Cᵏ, local_converged = compute_beams(
             u₁, u₂, R₁, R₂, ΔR₁, ΔR₂, 
             u̇₁, u̇₂, ẇ₁, ẇ₂, 
             ü₁, ü₂, ẅ₁, ẅ₂, 
-            constants
+            constants, material,
+            superelastic_state, plastic_state, DFT_SEP_state, DFT_EP_state, DFT_PSE_state, DFT_PP_state, DFT_PE_state,
+            true, false, beam.ind 
         )
+
+        # Track if any local Newton iteration did not converge
+        if !local_converged
+            Threads.atomic_and!(all_converged, false)
+        end
         
         # Assemble contributions into global vectors and matrices
         dofs1 = nodes.global_dofs[n1]               # dofs for node 1
@@ -66,5 +87,8 @@ function assemble!(conf::BeamsConfiguration, state::SimulationState, params::Sim
         state.matricesⁿ⁺¹.M.nzval[beam.global_sparsity_map] += vec(M)  # Mass matrix
 
     end
+
+    # Return convergence status (true if all local Newton iterations converged)
+    return all_converged[]
 
 end

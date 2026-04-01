@@ -32,5 +32,15 @@
     ωᴳ_beams::Vec3{Float64} = Vec3(5/9, 8/9, 5/9)
     zᴳ_beams::Vec3{Float64} = Vec3(-sqrt(3/5), 0, sqrt(3/5))
 
+    # Integration points for the cross section of the beam (Improved Gauss-Legendre quadrature for full circular cross section)
+    nˢ_beams::Int = 3
+    qˢ_beams::Vec3{Float64} = Vec3(1.0, 0.5, 0.5)
+    rˢ_beams::Vec3{Float64} = Vec3(0.0,  sqrt(6)/3, -sqrt(6)/3)
+    tˢ_beams::Vec3{Float64} = Vec3(0.0,  sqrt(3)/2, -sqrt(3)/2)
+    wˢ_beams::Vec3{Float64} = Vec3(1/4, 3/8, 3/8)
+
+    # Number of integration points for the cross section of the beam (Trapezoidal rule)
+    Nr = 4
+    Nθ = 12
 end 
 
