@@ -1,4 +1,4 @@
-function compute_beams(u₁, u₂, R₁, R₂, ΔR₁, ΔR₂, u̇₁, u̇₂, ẇ₁, ẇ₂, ü₁, ü₂, ẅ₁, ẅ₂, constants,material, superelastic_state, plastic_state, DFT_SEP_state, DFT_EP_state, DFT_PSE_state, DFT_PP_state, DFT_PE_state, exact=true, isdynamic=false, beam_ind::Int=0) 
+function compute_beams(u₁, u₂, R₁, R₂, ΔR₁, ΔR₂, u̇₁, u̇₂, ẇ₁, ẇ₂, ü₁, ü₂, ẅ₁, ẅ₂, constants,material, superelastic_state, plastic_state, DFT_SEP_state, DFT_EP_state, DFT_PSE_state, DFT_PP_state, DFT_PE_state, exact=true, isdynamic=true, beam_ind::Int=0) 
 
     # Superscript ¹ means matrix or vector associated to u₁
     # Superscript ² means matrix or vector associated to Θ₁

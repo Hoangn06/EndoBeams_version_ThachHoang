@@ -60,7 +60,7 @@ function assemble!(conf::BeamsConfiguration, state::SimulationState, params::Sim
             ü₁, ü₂, ẅ₁, ẅ₂, 
             constants, material,
             superelastic_state, plastic_state, DFT_SEP_state, DFT_EP_state, DFT_PSE_state, DFT_PP_state, DFT_PE_state,
-            true, false, beam.ind 
+            true, true, beam.ind 
         )
 
         # Track if any local Newton iteration did not converge

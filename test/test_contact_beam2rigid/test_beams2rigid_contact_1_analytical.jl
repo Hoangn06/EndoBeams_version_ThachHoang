@@ -45,7 +45,7 @@ initial_angular_velocities,
 initial_angular_accelerations, 
 plane
 )
-beams = Beams(nodes, connectivity, E, ν, ρ, radius, damping)
+beams = ElasticBeams(nodes, connectivity, E, ν, ρ, radius, damping)
 
 #----------------------------------
 # BEAMS CONFIGURATION DEFINITIONS
@@ -73,13 +73,15 @@ u̇ₛ = 0
 inter_properties = InteractionProperties(kₙ, μ, εᵗ, ηₙ, kₜ, ηₜ, u̇ₛ)
 
 # Create master and slave surfaces
-center_sphere = [2.0,.0,.0]
+center_sphere = [.0,.0,.0]
 radius_sphere = 0.055
 surface_master = SphereSurface(center_sphere, radius_sphere)
 surface_slave = BeamElementSurface(connectivity) 
 
 # Create the interaction instance
-inter = RigidInteraction(surface_master, surface_slave, inter_properties)
+inter = MultiRigidInteraction([
+    RigidInteraction(surface_master, surface_slave, inter_properties),
+])
 
 #----------------------------------------------------
 # SOLVER DEFINITIONS
@@ -95,7 +97,7 @@ initial_timestep = 0.01    # Initial time step size
 min_timestep = 1e-6     # Minimum allowed time step
 max_timestep = 0.1    # Maximum allowed time step (could be adjusted based on system behavior)
 output_timestep = 1    # Time step for output plotting or visualization
-simulation_end_time = 10 # End time for the simulation (duration of the analysis)
+simulation_end_time = 100 # End time for the simulation (duration of the analysis)
 
 # Convergence criteria for the solver
 tolerance_residual = 1e-3   # Residual tolerance for convergence checks
@@ -112,4 +114,5 @@ params = SimulationParams(;
 
 # Run the solver with the defined configurations and parameters
 run_simulation!(conf, params, inter)
+
 

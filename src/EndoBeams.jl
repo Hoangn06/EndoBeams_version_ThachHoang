@@ -66,7 +66,7 @@ module EndoBeams
     export Encastre, ImposedDisplacement, BoundaryConditions
     export SimulationParams, run_simulation!
     export read_vtk_tetrahedral_mesh, read_vtk_triangle_mesh
-    export RigidInteraction, MultiRigidInteraction, SoftInteraction, PlaneSurface, SphereSurface, CylinderSurface, MovingCylinderSurface, TriangulatedSurface, BeamElementSurface, BeamNodeSurface, InteractionProperties
+    export RigidInteraction, MultiRigidInteraction, SoftInteraction, PlaneSurface, SphereSurface, CylinderSurface, MovingCylinderSurface, DiscreteSignedDistanceField, TriangulatedSurface, BeamElementSurface, BeamNodeSurface, InteractionProperties
     export Matrices
     
     include("precompile/precompiles.jl")

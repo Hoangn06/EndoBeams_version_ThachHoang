@@ -45,7 +45,7 @@ initial_angular_velocities,
 initial_angular_accelerations, 
 plane
 )
-beams = Beams(nodes, connectivity, E, ν, ρ, radius, damping)
+beams = ElasticBeams(nodes, connectivity, E, ν, ρ, radius, damping)
 
 #----------------------------------
 # BEAMS CONFIGURATION DEFINITIONS
@@ -73,7 +73,7 @@ u̇ₛ = 0
 inter_properties = InteractionProperties(kₙ, μ, εᵗ, ηₙ, kₜ, ηₜ, u̇ₛ)
 
 # Create master and slave surfaces
-surface_master = DiscreteSignedDistanceField("test/input/sdf_sphere_20.vtk", true)
+surface_master = DiscreteSignedDistanceField("test/input/sphere.obj", true)
 surface_slave = BeamElementSurface(connectivity) 
 
 # Create the interaction instance
