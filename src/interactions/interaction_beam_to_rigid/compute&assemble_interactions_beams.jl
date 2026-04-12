@@ -93,8 +93,6 @@ function compute_contact_beams(u₁, u₂, R₁, R₂, ΔR₁, ΔR₂, u̇₁, u
         u̇₀ = Rₑ * h₁
         
         if incontact_beams(xᴳ, master_surface, radius_beam)
-
-            println("in contact")
             
             gₙ, ∂gₙ∂x, ∂²gₙ∂x² = contact_gap_beams(xᴳ, master_surface, radius_beam) 
             

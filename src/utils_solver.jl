@@ -276,7 +276,7 @@ function compute_vm_superelastic(sigma, eps)
 
     for gp in 1:n_gauss_points
         sigma_gp = sigma[:, gp]
-        e_gp = deviatoric_tensor(eps[:, gp])
+        e_gp = eps[:, gp]
         stress_VM[gp] = sqrt(sigma_gp[1]^2 + 3 * sigma_gp[2]^2 + 3 * sigma_gp[3]^2)
         strain_VM[gp] = sqrt(e_gp[1]^2 + 3 * e_gp[2]^2 + 3 * e_gp[3]^2)
     end

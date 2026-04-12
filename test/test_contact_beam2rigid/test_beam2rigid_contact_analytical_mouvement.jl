@@ -55,7 +55,7 @@ beams = ElasticBeams(nodes, connectivity, E, ν, ρ, radius, damping)
 
 # Define boundary conditions/ degrees of freedom
 ndofs = nnodes * 6                     # Total number of DOFs
-blocked_dofs = 1:6  # Node 1: all 6 DOFs fixed | all other nodes free
+blocked_dofs = [2, 3, 62, 63]  # Node 1 and node 11: Y and Z displacements fixed
 encastre = Encastre(blocked_dofs)
 
 # Beam configuration struct initialization
@@ -79,8 +79,8 @@ output_timestep = 1e-2     # Time step for output plotting
 simulation_end_time = 1.0     # End time for the simulation
 
 # Convergence criteria for the solver
-tolerance_residual = 1e-3       # Residual tolerance for convergence checks
-tolerance_displacement = 1e-3   # Tolerance for changes in displacement (ΔD)
+tolerance_residual = 1e-4       # Residual tolerance for convergence checks
+tolerance_displacement = 1e-4   # Tolerance for changes in displacement (ΔD)
 max_iterations = 10             # Maximum number of iterations for the solver
 
 #----------------------------------
@@ -98,21 +98,18 @@ u̇ₛ = 0
 inter_properties = InteractionProperties(kₙ, μ, εᵗ, ηₙ, kₜ, ηₜ, u̇ₛ)
 
 # Create master and slave surfaces
-radius_cylinder = 1.0
-cylinder_axis = SVector(0.0, 0.0, 1.0)   # unit vector along Z
+
 surface_slave = BeamElementSurface(connectivity)
 
-# Cylinder 1: moving, center goes from X=2.0 to X=0.0 over simulation
-center_function(t) = [2.0 * (1.0 - t / simulation_end_time), 0.0, 0.0]
-surface_master_1 = MovingCylinderSurface(center_function, cylinder_axis, radius_cylinder)
+# Moving plane: plane travels from x=1 to x=-1 over the simulation, pushing the beam in -X.
+# Normal points toward the beam (-X direction). Plane at x=p → offset = -p.
+plane_normal = SVector(-1.0, 0.0, 0.0)
+offset_function(t) = -1.0 + 2.0 * t / simulation_end_time   # plane: x=1 at t=0, x=-1 at t=end
+surface_master = MovingPlaneSurface(plane_normal, offset_function)
 
-# Cylinder 2: fixed, center at (-2.0, 2.5, 0.0)
-surface_master_2 = CylinderSurface(SVector(-2.0, 2.5, 0.0), cylinder_axis, radius_cylinder)
-
-# Create the interaction instance with multiple surfaces
+# Create the interaction instance
 inter = MultiRigidInteraction([
-    RigidInteraction(surface_master_1, surface_slave, inter_properties),
-    RigidInteraction(surface_master_2, surface_slave, inter_properties),
+    RigidInteraction(surface_master, surface_slave, inter_properties),
 ])
 
 # Store solver parameters in a structured Params object

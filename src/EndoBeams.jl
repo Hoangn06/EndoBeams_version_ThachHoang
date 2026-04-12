@@ -15,7 +15,7 @@ module EndoBeams
     include("def_structures/def_structures_DFT/def_structures_DFT_PP.jl")
     include("def_structures/def_structures_DFT/def_structures_DFT_PE.jl")
     include("def_structures/def_structures.jl")
-    include("interactions/def_interactions.jl")
+    include("interactions/interaction_beam_to_rigid/def_interactions.jl")
     include("sparse_matrices.jl")
 
     include("beams/def_node_beam.jl")
@@ -32,9 +32,10 @@ module EndoBeams
     include("beams/compute_beams.jl")
     include("beams/assemble_beams.jl")
     include("beams/utils/utils_beams.jl")
-    include("interactions/utils_compute_interactions_beams.jl")
-    include("interactions/interactions_beams_regularization.jl")
-    include("interactions/compute&assemble_interactions_beams.jl")
+    include("interactions/interaction_beam_to_rigid/utils_compute_interactions_beams.jl")
+    include("interactions/interaction_beam_to_rigid/interactions_beams_regularization.jl")
+    include("interactions/interaction_beam_to_rigid/compute&assemble_interactions_beams.jl")
+
     include("beams/utils/utils_tensors.jl")
     include("beams/materials/linear_elastic_beam/linear_elastic_beam.jl")
     include("beams/materials/superelastic_beam/superelastic_beam.jl")
@@ -66,7 +67,7 @@ module EndoBeams
     export Encastre, ImposedDisplacement, BoundaryConditions
     export SimulationParams, run_simulation!
     export read_vtk_tetrahedral_mesh, read_vtk_triangle_mesh
-    export RigidInteraction, MultiRigidInteraction, SoftInteraction, PlaneSurface, SphereSurface, CylinderSurface, MovingCylinderSurface, DiscreteSignedDistanceField, TriangulatedSurface, BeamElementSurface, BeamNodeSurface, InteractionProperties
+    export RigidInteraction, MultiRigidInteraction, SoftInteraction, PlaneSurface, MovingPlaneSurface, SphereSurface, CylinderSurface, MovingCylinderSurface, MovingSphereSurface, DiscreteSignedDistanceField, TriangulatedSurface, BeamElementSurface, BeamNodeSurface, InteractionProperties
     export Matrices
     
     include("precompile/precompiles.jl")

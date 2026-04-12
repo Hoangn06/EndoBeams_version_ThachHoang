@@ -34,11 +34,12 @@ end
 # SURFACE FIXED DEFINITIONS
 #----------------------------------
 
-# Defines an analytical plane used as a master surface in contact problems
+# Defines an analytical plane used as a master surface in contact problems.
 struct PlaneSurface <: RigidBodySurface
-    position::Float64  # Position along a specified axis
-    axis::Char         # Axis identifier (:x, :y, :z)
+    normal::Vec3{Float64}  # Outward unit normal of the plane
+    offset::Float64        # Signed distance from origin: dot(normal, x) = offset on the plane
 end
+
 
 # Defines an analytical sphere used as a master surface in contact problems
 struct SphereSurface <: RigidBodySurface
@@ -99,6 +100,24 @@ function update_surface!(s::MovingCylinderSurface, t)
     s.center[1] = c[1]
     s.center[2] = c[2]
     s.center[3] = c[3]
+end
+#----------------------------------
+
+# Defines a plane whose offset moves over time according to a user-supplied function.
+mutable struct MovingPlaneSurface{TF} <: RigidBodySurface
+    normal::Vec3{Float64}   # Fixed outward unit normal of the plane
+    offset::Float64          # Current offset (updated each time step)
+    offset_function::TF      # Function offset_function(t) -> Float64
+end
+
+# Defines a moving plane surface from a fixed normal and an offset function
+function MovingPlaneSurface(normal::Vec3{Float64}, offset_function::TF) where TF
+    return MovingPlaneSurface{TF}(normal, offset_function(0.0), offset_function)
+end
+
+# Update the plane offset for the current time step
+function update_surface!(s::MovingPlaneSurface, t)
+    s.offset = s.offset_function(t)
 end
 
 update_surface!(::RigidBodySurface, t) = nothing # No action for fixed surfaces

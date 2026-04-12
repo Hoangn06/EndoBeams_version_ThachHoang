@@ -1,4 +1,27 @@
-# Compute contact gap, gradient, and Hessian for a spherical SDF.
+#----------------------------------
+# UTILS FUNCTIONS FOR COMPUTING THE CONTACT WITH PLANE SURFACE
+#----------------------------------
+
+# Compute contact gap, gradient, and Hessian for a plane surface.
+@inline function contact_gap_beams(point, s::PlaneSurface, radius_beam)
+    gₙ     = dot(s.normal, point) - s.offset - radius_beam
+    ∂gₙ∂x  = s.normal
+    ∂²gₙ∂x² = @SMatrix zeros(3,3)
+    return gₙ, ∂gₙ∂x, ∂²gₙ∂x²
+end
+
+# Determine if a point is in contact with a plane surface.
+@inline function incontact_beams(point, s::PlaneSurface, radius_beam::Float64)
+    ḡₙ = radius_beam / 4
+    gₙ = dot(s.normal, point) - s.offset - radius_beam
+    return gₙ ≤ ḡₙ
+end
+
+#----------------------------------
+# UTILS FUNCTIONS FOR COMPUTING THE CONTACT WITH SPHERE SURFACE
+#----------------------------------
+
+# Compute contact gap, gradient, and Hessian for a spherical
 @inline function contact_gap_beams(point, master_surface::SphereSurface, radius_beam)
     # Vector from the point to the center of the sphere
     aux = point - master_surface.center
@@ -35,6 +58,11 @@ end
     return gₙ ≤ ḡₙ
 end
 
+#----------------------------------
+# UTILS FUNCTIONS FOR COMPUTING THE CONTACT WITH CYLINDER SURFACE
+#----------------------------------
+
+# Compute contact gap, gradient, and Hessian for a cylindrical surface
 @inline function contact_gap_beams(point, s::CylinderSurface, radius_beam)
     v      = point - s.center              # vector from axis point to beam point
     v_ax   = dot(v, s.axis) * s.axis       # axial component (along cylinder axis)
@@ -49,6 +77,7 @@ end
     return gₙ, ∂gₙ∂x, ∂²gₙ∂x²
 end
 
+# Determine if a point is in contact with a cylindrical surface
 @inline function incontact_beams(point, s::CylinderSurface, radius_beam::Float64)
     ḡₙ     = radius_beam / 4
     v      = point - s.center
@@ -57,6 +86,11 @@ end
     return gₙ ≤ ḡₙ
 end
 
+#----------------------------------
+# UTILS FUNCTIONS FOR COMPUTING THE CONTACT WITH MOVING CYLINDER SURFACE
+#----------------------------------
+
+# Compute contact gap, gradient, and Hessian for a moving cylindrical surface
 @inline function contact_gap_beams(point, s::MovingCylinderSurface, radius_beam)
     v      = point - s.center
     v_ax   = dot(v, s.axis) * s.axis
@@ -70,6 +104,7 @@ end
     return gₙ, ∂gₙ∂x, ∂²gₙ∂x²
 end
 
+# Determine if a point is in contact with a moving cylindrical surface
 @inline function incontact_beams(point, s::MovingCylinderSurface, radius_beam::Float64)
     ḡₙ     = radius_beam / 4
     v      = point - s.center
@@ -78,7 +113,11 @@ end
     return gₙ ≤ ḡₙ
 end
 
-# Contact gap, gradient, and Hessian for a moving sphere (same math as SphereSurface)
+#----------------------------------
+# UTILS FUNCTIONS FOR COMPUTING THE CONTACT WITH MOVING SPHERE SURFACE
+#----------------------------------
+
+# Contact gap, gradient, and Hessian for a moving sphere 
 @inline function contact_gap_beams(point, master_surface::MovingSphereSurface, radius_beam)
     aux = point - master_surface.center
     norm_aux = norm(aux)
@@ -89,6 +128,7 @@ end
     return gₙ, ∂gₙ∂x, ∂²gₙ∂x²
 end
 
+# Determine if a point is in contact with a moving sphere surface
 @inline function incontact_beams(point, master_surface::MovingSphereSurface, radius_beam::Float64)
     ḡₙ = radius_beam / 4
     aux = point - master_surface.center
@@ -96,6 +136,29 @@ end
     return gₙ ≤ ḡₙ
 end
 
+#----------------------------------
+# UTILS FUNCTIONS FOR COMPUTING THE CONTACT WITH MOVING PLANE SURFACE
+#----------------------------------
+
+# Contact gap, gradient, and Hessian for a moving plane
+@inline function contact_gap_beams(point, s::MovingPlaneSurface, radius_beam)
+    gₙ       = dot(s.normal, point) - s.offset - radius_beam
+    ∂gₙ∂x    = s.normal
+    ∂²gₙ∂x²  = @SMatrix zeros(3,3)
+    return gₙ, ∂gₙ∂x, ∂²gₙ∂x²
+end
+
+# Determine if a point is in contact with a moving plane surface
+@inline function incontact_beams(point, s::MovingPlaneSurface, radius_beam::Float64)
+    ḡₙ = radius_beam / 4
+    gₙ = dot(s.normal, point) - s.offset - radius_beam
+    return gₙ ≤ ḡₙ
+end
+
+
+#----------------------------------
+# UTILS FUNCTIONS FOR COMPUTING THE CONTACT WITH DISCRETE SDF SURFACE
+#----------------------------------
 
 # Check if a point is within the specified domain.
 @inline function isinside(point, dom)
