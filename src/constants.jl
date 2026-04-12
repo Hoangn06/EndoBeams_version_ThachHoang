@@ -7,6 +7,7 @@ const Mat67{Float64} = SMatrix{6,7,Float64,42}
 const Mat66{Float64} = SMatrix{6,6,Float64,36}
 const Mat77{Float64} = SMatrix{7,7,Float64,49}
 
+const Mat312{Float64} = SMatrix{3,12,Float64,36}
 const Mat224{Float64} = SMatrix{2,24,Float64,48}
 const Mat324{Float64} = SMatrix{3,24,Float64,72}
 

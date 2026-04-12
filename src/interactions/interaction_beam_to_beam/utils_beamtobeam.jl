@@ -374,7 +374,7 @@ function beam2beam_get_position_and_matrix_G_at_previous_contact_point(state, co
         # Compute the beam information at the current time step
         u₁₁, u₂₁, R₁₁, R₂₁, init₁ = beaminfo₁
         u₁₂, u₂₂, R₁₂, R₂₂, init₂ = beaminfo₂
-        
+
         # Compute the derivatives of the beam positions with the previous contact point
         xᵖ₁, _, _, _  = beam2beam_get_derivatives(ξᶜ₁_n, u₁₁, u₂₁, R₁₁, R₂₁, init₁)
         xᵖ₂, _, _, _  = beam2beam_get_derivatives(ξᶜ₂_n, u₁₂, u₂₂, R₁₂, R₂₂, init₂)

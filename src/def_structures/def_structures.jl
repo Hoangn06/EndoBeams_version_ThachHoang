@@ -111,21 +111,38 @@ struct SimulationState
     solⁿ⁺¹::Solution
     energyⁿ⁺¹::Energy
     material_states::BeamMaterialStates
+    beam2beam_contactsⁿ⁺¹::Union{Nothing, Any}  # Beam-to-beam contact tracking for the current time step
+    beam2beam_contactsⁿ::Union{Nothing, Any}     # Beam-to-beam contact tracking for the previous time step
+    b2b_sparsity::Union{Nothing, Any}            # Pre-computed sparsity maps for all beam-to-beam pairs
 end
 
-function SimulationState(conf::BeamsConfiguration, params::SimulationParams)
+function SimulationState(conf::BeamsConfiguration, params::SimulationParams, beam2beam)
+    
     ndofs = conf.ndofs
     free_dofs = conf.bcs.free_dofs
 
     # Allocate state variables for beams
     forcesⁿ = Forces(conf)
     forcesⁿ⁺¹ = deepcopy(forcesⁿ)
-    matricesⁿ, solutionⁿ⁺¹ = sparse_matrices_beams!(conf)
-    matricesⁿ⁺¹ = deepcopy(matricesⁿ)
     energyⁿ⁺¹ = Energy()
     material_states = BeamMaterialStates(conf, params)
 
-    return SimulationState(forcesⁿ, forcesⁿ⁺¹, matricesⁿ, matricesⁿ⁺¹, solutionⁿ⁺¹, energyⁿ⁺¹, material_states)
+    if beam2beam
+        # Build sparse matrices including all possible beam-to-beam contact entries
+        matricesⁿ, solutionⁿ⁺¹, b2b_sparsity = sparse_matrices_beams_b2b!(conf)
+        beam2beam_contactsⁿ⁺¹ = Beam2BeamContacts()
+        beam2beam_contactsⁿ    = deepcopy(beam2beam_contactsⁿ⁺¹)
+
+    else
+        matricesⁿ, solutionⁿ⁺¹ = sparse_matrices_beams!(conf)
+        b2b_sparsity       = nothing
+        beam2beam_contactsⁿ⁺¹ = nothing
+        beam2beam_contactsⁿ    = nothing
+    end
+
+    matricesⁿ⁺¹ = deepcopy(matricesⁿ)
+
+    return SimulationState(forcesⁿ, forcesⁿ⁺¹, matricesⁿ, matricesⁿ⁺¹, solutionⁿ⁺¹, energyⁿ⁺¹, material_states, beam2beam_contactsⁿ⁺¹, beam2beam_contactsⁿ, b2b_sparsity)
 end
 
 # Function to create the appropriate material state for a given beam

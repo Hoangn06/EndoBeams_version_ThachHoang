@@ -1,4 +1,3 @@
-
 #----------------------------------------------------
 # PACKAGE INITIALIZATION
 #----------------------------------------------------
@@ -10,27 +9,26 @@ using DelimitedFiles, ReadVTK, WriteVTK, LinearAlgebra, LinearSolve, Test, Revis
 #----------------------------------------------------# BEAM DEFINITIONS
 #----------------------------------------------------
 
-# Define node positions and connectivity for beams
-positions = [0.0  0.0  0.0;
-0.0  2.5  0.0;
-0.0  5.0  0.0;
-0.0  7.5  0.0;
-0.0 10.0  0.0;
--2.5 10.0  0.0;
--5.0 10.0  0.0;
--7.5 10.0  0.0;
--10.0 10.0  0.0]             
-nnodes = size(positions, 1)    # Total number of nodes
+dx = 5; L = 10
+aux = 0:dx:L
+n = length(aux)
+x = aux .- 4.31
 
-nbeams = nnodes - 1                    # Number of beam elements
-connectivity = [1 2;
-2 3;
-3 4;
-4 5;
-5 6;
-6 7;
-7 8;
-8 9]  # Connectivity for beam elements # Connectivity for beam elements
+#Generate positions of the beam
+X0 = hcat(zeros(Float64, n), collect(x), fill(3.23, n))
+X1 = hcat(fill(0.06,n), zeros(Float64, n), collect(aux))
+positions  = vcat(X0, X1)
+positions  = positions./100
+
+# Define node positions and connectivity for beams
+nnodes = size(positions, 1)    # Total number of nodes
+nbeams = nnodes - 1     # Number of beam elements
+
+half = Int(nnodes * 0.5)
+conn1 = hcat(1:half-1,       2:half)  # build first half connectivity
+conn2 = hcat(half+1:nnodes-1, half+2:nnodes) # build second half connectivity
+connectivity = vcat(conn1, conn2) # combine into a single 2-column matrix
+
 
 # Initial conditions for displacements, velocities, accelerations, and rotations
 initial_displacements = zeros(size(positions))       # Zero initial displacements
@@ -42,10 +40,10 @@ initial_angular_accelerations = zeros(size(positions))  # Zero initial angular a
 plane = "xy"                         # Plane of the problem
 
 # Material and geometric properties for beams
-E = 1e6                              # Young's modulus (Pa)
-ν = 0.3                              # Poisson's ratio
-ρ = 1                                # Density (kg/m³)
-radius = 0.3                         # Beam radius (m)
+E = 5*1e9                            # Young's modulus (Pa)
+ν = 0.33                             # Poisson's ratio
+ρ = 7850                             # Density (kg/m³)
+radius = 0.3/1000                    # Beam radius (m)
 damping = 0                          # Damping coefficient
 
 # Build nodes and beams
@@ -65,19 +63,30 @@ beams = ElasticBeams(nodes, connectivity, E, ν, ρ, radius, damping)
 # BEAMS CONFIGURATION DEFINITIONS
 #----------------------------------
 
-# External force
-loaded_dofs = [27]   # Degree of freedom where the external force is applied
-force_function(t,i) = 100 * t # Time-dependent external force function
-concentrated_force = ConcentratedForce(force_function, loaded_dofs)  
-
 # Degrees of freedom (DOFs) definition
 ndofs = nnodes * 6                     # Total number of DOFs (6 per node for displacement and rotation)
-blocked_dofs = 1:6                      # First 6 DOFs are fixed (e.g., at the boundary)
-encastre = Encastre(blocked_dofs)
+blocked_dofs = Int[2:6; 6*(nnodes/2+1-1).+(1:6)]   # Fixed DOFs (e.g., at the boundary)
+encastre = Encastre(blocked_dofs)       # Encastre structured
+
+# Displacement imposed
+imposed_dofs = Int[1]
+dispA = 10/100           # Peak displacement 
+tA   = 2.5             # Duration of each linear segment
+k    = dispA / tA      # Constant slope for rising/falling legs
+displacement_applied(t) = (k*t).*(t<=tA) + (-k*t + 2*dispA).*(t>tA && t<=2*tA) + (k*(t-2*tA)).*(t>2*tA && t<=3*tA) +(-k*t + 4*dispA).*(t>3*tA && t<=4*tA)
+
+displacementimposed = ImposedDisplacement(imposed_dofs,displacement_applied)
+
+# External force
+loaded_dofs = Int[]   # Degree of freedom where the external force is applied
+force_function(t,i) = 0 # Time-dependent external force function
+concentrated_force = ConcentratedForce(force_function, loaded_dofs)  
 
 # Beam configuration struct initialization
-conf = BeamsConfiguration(nodes, beams, Loads(concentrated_force), BoundaryConditions(encastre, ndofs))  # Store the configuration for beams
+conf = BeamsConfiguration(nodes, beams, Loads(concentrated_force), BoundaryConditions(encastre,displacementimposed, ndofs))  # Store the configuration for beams
 
+# Declare beam-to-beam contact
+beam2beam = true
 #----------------------------------------------------
 # SOLVER DEFINITIONS
 #----------------------------------------------------
@@ -88,15 +97,15 @@ conf = BeamsConfiguration(nodes, beams, Loads(concentrated_force), BoundaryCondi
 γ = 0.5 * (1 - 2 * α)  # Time-stepping parameter
 
 # General time stepping parameters
-initial_timestep = 1e-5    # Initial time step size
-min_timestep = 1e-10    # Minimum allowed time step
-max_timestep = 1e-2    # Maximum allowed time step (could be adjusted based on system behavior)
-output_timestep = 1e-4    # Time step for output plotting or visualization
+initial_timestep = 1E-4  # Initial time step size
+min_timestep = 1E-10    # Minimum allowed time step
+max_timestep = 1E-4    # Maximum allowed time step (could be adjusted based on system behavior)
+output_timestep = 1E-2    # Time step for output plotting or visualization
 simulation_end_time = 1 # End time for the simulation (duration of the analysis)
 
 # Convergence criteria for the solver
-tolerance_residual = 1e-3   # Residual tolerance for convergence checks
-tolerance_displacement = 1e-3    # Tolerance for changes in displacement (ΔD)
+tolerance_residual = 1e-5   # Residual tolerance for convergence checks
+tolerance_displacement = 1e-5    # Tolerance for changes in displacement (ΔD)
 max_iterations = 10      # Maximum number of iterations for the solver
 
 # Store solver parameters in a structured Params object
@@ -109,5 +118,5 @@ params = SimulationParams(;
 #----------------------------------------------------
 
 # Run the solver with the defined configurations and parameters
-run_simulation!(conf, params)
+run_simulation!(conf, params,nothing, beam2beam)
 

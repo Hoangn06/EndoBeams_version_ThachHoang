@@ -1,4 +1,4 @@
-function run_simulation!(conf::SimulationConfiguration, params::SimulationParams, inter::Union{Nothing, Interaction}=nothing)
+function run_simulation!(conf::SimulationConfiguration, params::SimulationParams, inter::Union{Nothing, Interaction}=nothing, beam2beam = false)
 
     # Unpack relevant parameters for simulation control
     @unpack stop_on_energy_threshold, verbose, record_timings, output_dir, min_timestep, initial_timestep, 
@@ -13,7 +13,7 @@ function run_simulation!(conf::SimulationConfiguration, params::SimulationParams
     end 
 
     # Setup variables for the solver and for the visualization 
-    state, vtkdata = setup_state_simulation(conf, params, inter, output_dir)
+    state, vtkdata = setup_state_simulation(conf, params, inter,beam2beam, output_dir)
 
     # Initialize rotation storage for tracking converged rotations
     rotation_storage = RotationStorage()
@@ -58,7 +58,7 @@ function run_simulation!(conf::SimulationConfiguration, params::SimulationParams
         end 
         
         # Solve the system for the current time step
-        n_it = solve_step_dynamics!(conf, state, params, inter, tⁿ⁺¹, Δt, solver)
+        n_it = solve_step_dynamics!(conf, state, params, inter,beam2beam, tⁿ⁺¹, Δt, solver)
 
         # Check convergence status
         if n_it > max_iterations

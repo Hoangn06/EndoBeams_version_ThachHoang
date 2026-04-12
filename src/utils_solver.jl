@@ -59,7 +59,7 @@ function compute_tangent_and_residuals_predictor!(state::SimulationState, Δt, �
     
     # Compute residual vector (r) at predictor step
     # r = (1+α) * external forces - (internal forces + contact forces) - α * previous external forces
-    @. state.solⁿ⁺¹.r = (1 + α) * state.forcesⁿ⁺¹.fᵉˣᵗ - state.forcesⁿ.Tⁱⁿᵗ - state.forcesⁿ.Tᵏ - α * state.forcesⁿ.fᵉˣᵗ
+    @. state.solⁿ⁺¹.r = (1 + α) * state.forcesⁿ⁺¹.fᵉˣᵗ - state.forcesⁿ.Tⁱⁿᵗ - state.forcesⁿ.Tᶜ - state.forcesⁿ.Tᵏ - α * state.forcesⁿ.fᵉˣᵗ
 
     # Add contribution from damping matrix (C)
     # temp = (γ/β) * Ḋ - (Δt/2 * (2β - γ) / β) * D̈
@@ -418,6 +418,11 @@ function update_converged!(conf::BeamsConfiguration, state::SimulationState;
             end
         end
     end
+
+    # Update beam-to-beam contacts if they are active
+    if state.beam2beam_contactsⁿ⁺¹ !== nothing
+        state.beam2beam_contactsⁿ.contacts = deepcopy(state.beam2beam_contactsⁿ⁺¹.contacts)
+    end
     
 end
 
@@ -477,6 +482,11 @@ function update_not_converged!(conf::BeamsConfiguration, state::SimulationState)
             dft_pe_state = ms[beam.ind]::DFT_PE_States
             copy_plastic_state!(dft_pe_state.Plasticⁿ⁺¹, dft_pe_state.Plasticⁿ)
         end
+    end
+
+    # Revert beam-to-beam contacts if they are active
+    if state.beam2beam_contactsⁿ⁺¹ !== nothing
+        state.beam2beam_contactsⁿ⁺¹.contacts = deepcopy(state.beam2beam_contactsⁿ.contacts)
     end
     
 end

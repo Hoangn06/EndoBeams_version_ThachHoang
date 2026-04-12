@@ -1,4 +1,4 @@
-function corrector!(conf::SimulationConfiguration, state::SimulationState, params::SimulationParams, inter::Union{Nothing, Interaction}, Δt, solver)
+function corrector!(conf::SimulationConfiguration, state::SimulationState, params::SimulationParams, inter::Union{Nothing, Interaction}, beam2beam, Δt, solver)
     
     # Unpack parameters for the corrector loop
     @unpack tolerance_residual, tolerance_displacement, max_iterations, α, β, γ = params
@@ -10,6 +10,12 @@ function corrector!(conf::SimulationConfiguration, state::SimulationState, param
     k = 1                   # Current iteration number
     ΔD_norm = Inf           # Displacement increment norm
     res_norm = Inf          # Residual norm
+
+    # Compute positions and G matrices at previous contact points for beam2beam
+    if beam2beam
+        @timeit_debug "Search canditates" candidate_elements = beams2beam_search_canditates(conf)
+        @timeit_debug "Update previous contact data" beam2beam_get_position_and_matrix_G_at_previous_contact_point(state, conf)
+    end
         
     # Main loop for corrector iteration
     while (res_norm > tolerance_residual || ΔD_norm > tolerance_displacement) && k ≤ max_iterations
@@ -22,6 +28,11 @@ function corrector!(conf::SimulationConfiguration, state::SimulationState, param
             params.verbose && printstyled("  Local Newton for superelastic did not converge, reducing time step...\n"; color = :yellow)
             release!(solver)
             return max_iterations + 1  # Signal non-convergence
+        end
+
+        #Assemble element contributions for beam2beam contact
+        if beam2beam
+            @timeit_debug "Compute contributions" beam2beam_compute!(candidate_elements, conf, state)
         end
 
         if isa(inter, MultiRigidInteraction)

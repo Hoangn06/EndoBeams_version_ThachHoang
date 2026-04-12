@@ -104,80 +104,135 @@ function sparse_matrices_beams!(conf::BeamsConfiguration)
 end
 
 # --------------------------------------------------------------------------------------------------
-# FUTURE EXTENSION: SPARSITY PATTERN FOR BEAM-TO-BEAM CONTACT
+# SPARSITY PATTERN FOR BEAM-TO-BEAM CONTACT
 # --------------------------------------------------------------------------------------------------
-#
-# To add beam-to-beam contact, the sparsity_beams function signature becomes:
-#
-# function sparsity_beams(nodes, beams, contact_pairs, fixed_dofs)
-#
-# where contact_pairs is a list of (b1, b2) beam index pairs currently in contact.
-#
-# STEP 1 — Extend N to include contact entries (576 per contact pair: 24×24)
-#
-#   beam_ndofs    = 12
-#   contact_ndofs = 24   # 12 dofs per beam × 2 beams in contact
-#   N_beams       = length(beams) * beam_ndofs^2              # 144 per beam (unchanged)
-#   N_contact     = length(contact_pairs) * contact_ndofs^2  # 576 per contact pair
-#   N             = N_beams + N_contact
-#
-# STEP 2 — After the existing beam loop (type=1), add a contact loop (type=2)
-#
-#   # --- contact loop (type=2) ---
-#   for ci in eachindex(contact_pairs)
-#       b1, b2 = contact_pairs[ci]          # indices of the two beams in contact
-#       n1, n2 = beams.node1[b1], beams.node2[b1]
-#       n3, n4 = beams.node1[b2], beams.node2[b2]
-#       dofs = vcat(nodes.local_dofs[n1], nodes.local_dofs[n2],   # 24 dofs total:
-#                   nodes.local_dofs[n3], nodes.local_dofs[n4])   # beam1 dofs + beam2 dofs
-#       local_dofs = 1
-#       for j in dofs, i in dofs            # 24×24 = 576 combinations
-#           I[k] = i; J[k] = j
-#           infos[k] = [Vec4(2, ci, local_dofs, i in fixed_dofs || j in fixed_dofs)]
-#           k += 1; local_dofs += 1
-#       end
-#   end
-#
-#   NOTE: The off-diagonal blocks K[dofs_beam1, dofs_beam2] and K[dofs_beam2, dofs_beam1]
-#   are NEW positions not covered by the single-beam loop. They are automatically included
-#   because dofs combines both beams' DOFs and all 24×24 combinations are registered.
-#
-# STEP 3 — Allocate and extract the contact sparsity map from K.nzval
-#
-#   contact_spmap = [MVector{576, Int}(undef) for _ in 1:length(contact_pairs)]
-#
-#   for (i, infos) in enumerate(K.nzval)
-#       for (type, idx, local_dofs) in infos
-#           if type == 1
-#               beams_spmap[idx][local_dofs] = i       # unchanged
-#           elseif type == 2
-#               contact_spmap[idx][local_dofs] = i     # map contact pair ci, local pos → nzval index
-#           end
-#       end
-#       if infos[1][4] == 0
-#           ksf += 1
-#           sparsity_free[ksf] = i
-#       end
-#   end
-#
-# STEP 4 — Store the contact sparsity map on each contact pair object
-#
-#   for ci in eachindex(contact_pairs)
-#       contact_pairs.global_sparsity_map[ci] = contact_spmap[ci]
-#   end
-#
-# STEP 5 — Assembly (in assemble_contact! function, mirrors assemble_beams.jl line 64)
-#
-#   # Kc is the 24×24 local contact stiffness matrix
-#   state.matricesⁿ⁺¹.K.nzval[contact_pair.global_sparsity_map] += vec(Kc)
-#
-#   The 24×24 layout of Kc maps to the global matrix as:
-#
-#             dofs_beam1 (12)     dofs_beam2 (12)
-#            ┌──────────────────┬──────────────────┐
-# dofs_beam1 │  Kc[1:12, 1:12]  │  Kc[1:12, 13:24] │  ← beam1-beam1 and beam1-beam2 coupling
-#            ├──────────────────┼──────────────────┤
-# dofs_beam2 │  Kc[13:24, 1:12] │  Kc[13:24,13:24] │  ← beam2-beam1 and beam2-beam2 coupling
-#            └──────────────────┴──────────────────┘
-#
-# --------------------------------------------------------------------------------------------------
+
+# Stores one 24×24 sparsity map per ordered beam pair (b1, b2).
+struct Beam2BeamSparsityMaps
+    maps::Dict{Tuple{Int,Int}, MVector{576, Int}}
+end
+
+# Build the combined sparsity pattern that includes:
+#   - all single-beam entries         (type 1, 12×12 = 144 per beam)
+#   - all canonical beam pair entries  (type 2, 24×24 = 576 per pair, b1 < b2 only)
+function sparsity_beams_b2b(nodes, beams, fixed_dofs)
+
+    beam_ndofs    = 12
+    contact_ndofs = 24
+    n_beams       = length(beams)
+    n_pairs       = n_beams * (n_beams - 1) ÷ 2      # canonical pairs: b1 < b2 only
+
+    N_beams   = n_beams * beam_ndofs^2                # 144 per beam
+    N_contact = n_pairs * contact_ndofs^2             # 576 per canonical pair
+    N         = N_beams + N_contact
+
+    I     = Vector{Int}(undef, N)
+    J     = Vector{Int}(undef, N)
+    infos = Vector{Vector{Vec4{Int}}}(undef, N)
+
+    k = 1
+
+    # --- Beam loop (type = 1, unchanged) ---
+    for bi in eachindex(beams)
+        n1, n2 = beams.node1[bi], beams.node2[bi]
+        dofs = vcat(nodes.local_dofs[n1], nodes.local_dofs[n2])
+        local_dofs = 1
+        for j in dofs, i in dofs
+            I[k] = i
+            J[k] = j
+            infos[k] = [Vec4(1, bi, local_dofs, i in fixed_dofs || j in fixed_dofs)]
+            k += 1
+            local_dofs += 1
+        end
+    end
+
+    # --- Contact pair loop (type = 2, b1 < b2 only) ---
+    # DOF ordering: [local_dofs of b2 (12), local_dofs of b1 (12)]
+    # This matches vcat(dof₂, dof₁) used in the assembly.
+    ci = 1
+    pair_ci = Dict{Tuple{Int,Int}, Int}()   # (b1, b2) with b1 < b2 → contact index ci
+
+    for b1 in 1:n_beams, b2 in (b1+1):n_beams
+        nb1_1, nb1_2 = beams.node1[b1], beams.node2[b1]   # nodes of b1 (smaller index)
+        nb2_1, nb2_2 = beams.node1[b2], beams.node2[b2]   # nodes of b2 (larger index)
+        # DOF order: b2 first (= dof₂ in assembly), b1 second (= dof₁ in assembly)
+        dofs = vcat(nodes.local_dofs[nb2_1], nodes.local_dofs[nb2_2],
+                    nodes.local_dofs[nb1_1], nodes.local_dofs[nb1_2])
+        local_dofs = 1
+        for j in dofs, i in dofs
+            I[k] = i
+            J[k] = j
+            infos[k] = [Vec4(2, ci, local_dofs, i in fixed_dofs || j in fixed_dofs)]
+            k += 1
+            local_dofs += 1
+        end
+        pair_ci[(b1, b2)] = ci
+        ci += 1
+    end
+
+    # Build combined sparse matrix
+    K = sparse(I, J, infos, maximum(I), maximum(J), vcat)
+
+    sparsity_free  = Vector{Int}(undef, length(K.nzval))
+    ksf = 0
+
+    beams_spmap   = [MVector{144, Int}(undef) for _ in 1:n_beams]
+    contact_spmap = [MVector{576, Int}(undef) for _ in 1:n_pairs]
+
+    for (i, infos_i) in enumerate(K.nzval)
+        for info in infos_i
+            type, idx, local_dofs = info[1], info[2], info[3]
+            if type == 1
+                beams_spmap[idx][local_dofs] = i
+            elseif type == 2
+                contact_spmap[idx][local_dofs] = i
+            end
+        end
+        if infos_i[1][4] == 0
+            ksf += 1
+            sparsity_free[ksf] = i
+        end
+    end
+
+    resize!(sparsity_free, ksf)
+
+    # Store beam sparsity maps on beam structs
+    max_dofs = 0
+    for i in eachindex(beams)
+        beams.local_sparsity_map[i] = beams_spmap[i]
+        beams.global_sparsity_map[i] = beams_spmap[i]
+        if maximum(beams.global_sparsity_map[i]) > max_dofs
+            max_dofs = maximum(beams.global_sparsity_map[i])
+        end
+    end
+
+    # Build Beam2BeamSparsityMaps
+    b2b_maps = Dict{Tuple{Int,Int}, MVector{576, Int}}()
+    for (pair, ci_val) in pair_ci
+        b2b_maps[pair] = contact_spmap[ci_val]
+    end
+    b2b_sparsity = Beam2BeamSparsityMaps(b2b_maps)
+
+    return I, J, sparsity_free, max_dofs, b2b_sparsity
+end
+
+# Build sparse matrices including beam-to-beam contact sparsity.
+function sparse_matrices_beams_b2b!(conf::BeamsConfiguration)
+
+    @unpack beams, nodes, bcs, ndofs = conf
+
+    free_dofs  = bcs.free_dofs
+    fixed_dofs = bcs.fixed_dofs
+    nfreedofs  = length(free_dofs)
+
+    I, J, sparsity_free, _, b2b_sparsity = sparsity_beams_b2b(nodes, beams, fixed_dofs)
+
+    Ktan      = sparse(I, J, 0.0)
+    Ktan_free = Ktan[free_dofs, free_dofs]
+
+    matrices = Matrices(I, J, sparsity_free)
+    sol      = Solution(Ktan, Ktan_free, ndofs, nfreedofs)
+
+    return matrices, sol, b2b_sparsity
+end
+

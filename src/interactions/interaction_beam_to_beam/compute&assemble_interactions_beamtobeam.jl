@@ -298,32 +298,35 @@ function beam2beam_compute!(candidate_elements, conf, state)
                     gᵀᴾ₂_n = 0
                     first_contact = true
                 end
-                
+
                 @timeit_debug "Compute force and matrix"  Tᶜ, Kᶜ, gᵀ₁, gᵀ₂, gᵀᴾ₁, gᵀᴾ₂ =  beam2beam_compute_Kc_Tc(beaminfo₁, beaminfo₂, ξᶜ₁, ξᶜ₂, gₙ, 
                                                                     first_contact, ξᶜ₁_n, ξᶜ₂_n,
                                                                     xᵖ₁, xᵖ₂, 
                                                                     G1P, G2P,
                                                                     gᵀ₁_n, gᵀ₂_n,
                                                                     gᵀᴾ₁_n, gᵀᴾ₂_n)
-                
+
                 # Create or update contact structure
                 new_contact = BeamPairInContact(beam₁.ind, beam₂.ind, ξᶜ₁, ξᶜ₂, xᵖ₁, xᵖ₂, G1P, G2P, gᵀ₁, gᵀ₂, gᵀᴾ₁, gᵀᴾ₂)
                 Update_BeamPair!(state.beam2beam_contactsⁿ⁺¹, new_contact)
                 
                 @timeit_debug "Assemble" begin
-                    dof₁₁= nodes.global_dofs[beam₁.node1]
-                    dof₁₂= nodes.global_dofs[beam₁.node2]
-                    dof₁ = vcat(dof₁₁, dof₁₂)
+                    dof₁₁ = nodes.global_dofs[beam₁.node1]
+                    dof₁₂ = nodes.global_dofs[beam₁.node2]
+                    dof₁  = vcat(dof₁₁, dof₁₂)
 
                     dof₂₁ = nodes.global_dofs[beam₂.node1]
                     dof₂₂ = nodes.global_dofs[beam₂.node2]
-                    dof₂ = vcat(dof₂₁, dof₂₂)
+                    dof₂  = vcat(dof₂₁, dof₂₂)
 
+                    # Force vector: DOF ordering is [dof₂ (12), dof₁ (12)]
                     contact_dofs = vcat(dof₂, dof₁)
-                    
                     state.forcesⁿ⁺¹.Tᶜ[contact_dofs] .-= Tᶜ
-                    
-                    state.matricesⁿ⁺¹.K[contact_dofs, contact_dofs] .+= Kᶜ
+
+                    # Stiffness matrix: use pre-computed sparsity map for fast nzval assembly.
+                    # candidate_elements guarantees beam₁.ind < beam₂.ind, so the key is direct.
+                    spmap = state.b2b_sparsity.maps[(beam₁.ind, beam₂.ind)]
+                    state.matricesⁿ⁺¹.K.nzval[spmap] .+= vec(Kᶜ)
                 end
                 
             end 

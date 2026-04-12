@@ -14,10 +14,10 @@ function clean_folders(output_dir)
 end 
 
 # Initializes simulation state, pre-allocates memory, and generates initial VTK files.
-function setup_state_simulation(conf::BeamsConfiguration,params::SimulationParams, inter::Union{Nothing, Interaction},   output_dir)
+function setup_state_simulation(conf::BeamsConfiguration,params::SimulationParams, inter::Union{Nothing, Interaction}, beam2beam, output_dir)
  
     # Group beam state variables into a single structure
-    state = SimulationState(conf, params)
+    state = SimulationState(conf, params, beam2beam)
 
     # Prepare VTK data for visualization
     vtkdata = VTKDataBeams(conf, output_dir)

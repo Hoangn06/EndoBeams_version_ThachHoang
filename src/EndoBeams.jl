@@ -36,6 +36,10 @@ module EndoBeams
     include("interactions/interaction_beam_to_rigid/interactions_beams_regularization.jl")
     include("interactions/interaction_beam_to_rigid/compute&assemble_interactions_beams.jl")
 
+    include("interactions/interaction_beam_to_beam/def_structure_beamtobeam.jl")
+    include("interactions/interaction_beam_to_beam/utils_beamtobeam.jl")
+    include("interactions/interaction_beam_to_beam/compute&assemble_interactions_beamtobeam.jl")
+
     include("beams/utils/utils_tensors.jl")
     include("beams/materials/linear_elastic_beam/linear_elastic_beam.jl")
     include("beams/materials/superelastic_beam/superelastic_beam.jl")
@@ -69,6 +73,7 @@ module EndoBeams
     export read_vtk_tetrahedral_mesh, read_vtk_triangle_mesh
     export RigidInteraction, MultiRigidInteraction, SoftInteraction, PlaneSurface, MovingPlaneSurface, SphereSurface, CylinderSurface, MovingCylinderSurface, MovingSphereSurface, DiscreteSignedDistanceField, TriangulatedSurface, BeamElementSurface, BeamNodeSurface, InteractionProperties
     export Matrices
+    export BeamPairInContact, Beam2BeamContacts, Beam2BeamSparsityMaps
     
     include("precompile/precompiles.jl")
     _precompile_()
