@@ -3,8 +3,10 @@ function residual_linear( F::Float64, F_prev::Float64,
     F_f_AS::Float64, lambda_AS::Float64, H_AS::Float64,
     F_f_SA::Float64, lambda_SA::Float64, H_SA::Float64,
     xi::Float64)
-    R_AS = F_f_AS * lambda_AS + H_AS * (1.0 - xi) * (F - F_prev)
-    R_SA = F_f_SA * lambda_SA - H_SA * xi * (F - F_prev)
+
+    epsilon = 1e-8
+    R_AS = F_f_AS * lambda_AS + H_AS * (1.0 - xi + epsilon) * (F - F_prev)
+    R_SA = F_f_SA * lambda_SA - H_SA * (xi + epsilon) * (F - F_prev)
     
    return R_AS, R_SA
 end
@@ -37,10 +39,11 @@ function jacobian_linear(F::Float64, F_prev::Float64,
     #G1 = n' * (dC * eps_total_elastic - Cᴱ * (n + α * I) * εL) + α * (dE * eps_total_elastic[1] - E * (n[1] + α ) * εL)
 
     # Compute the jacobian component
-    a = G1 * lambda_AS - H_AS*((F - F_prev) - (1 - xi) * G1) + F_f_AS
-    b = G1 * lambda_AS - H_AS*((F - F_prev) - (1 - xi) * G1)
-    c = G1 * lambda_SA - H_SA*((F - F_prev) + xi * G1)
-    d = G1 * lambda_SA - H_SA*((F - F_prev) + xi * G1) + F_f_SA
+    epsilon = 1e-8
+    a = G1 * lambda_AS - H_AS*((F - F_prev) - (1 - xi + epsilon) * G1) + F_f_AS
+    b = G1 * lambda_AS - H_AS*((F - F_prev) - (1 - xi + epsilon) * G1)
+    c = G1 * lambda_SA - H_SA*((F - F_prev) + (xi + epsilon) * G1)
+    d = G1 * lambda_SA - H_SA*((F - F_prev) + (xi + epsilon) * G1) + F_f_SA
 
     return a, b, c, d
 end
@@ -56,6 +59,14 @@ function trial_state(Eᴬ::Float64, Eᴹ::Float64, Gᴬ::Float64, Gᴹ::Float64,
 
     # Step 0: Initialize the variables for the trial state
     xi_S = superelastic_state.superelasticⁿ.xi_S[ind_G] # The martensite fraction is the same as the previous step
+
+    if xi_S > 1.0
+        xi_S = 1.0
+    end
+    
+    if xi_S < 0.0
+        xi_S = 0.0
+    end
  
     # Step 0.2: Compute the total strain at the current Gauss points
     # Concatenate DOFs: [ū, Θ̅₁[1], Θ̅₁[2], Θ̅₁[3], Θ̅₂[1], Θ̅₂[2], Θ̅₂[3]]
@@ -188,118 +199,197 @@ function superelasticity_newton_local(Eᴬ::Float64, Eᴹ::Float64, Gᴬ::Float6
         F_f_AS_trial = F_trial - R_f_AS
         F_f_SA_trial = F_trial - R_f_SA
 
-        #SOLVE THE NONLINEAR SYSTEM OF EQUATIONS
-        tol = 1e-4
-        norm_res = 1e6
-        max_it = 100
-        k = 0
-        norm_R_0 = 0.0
+        #------------------------------------------------------------------
+        # DAMPED NEWTON WITH ARMIJO LINE SEARCH (following 4C structure)
+        #------------------------------------------------------------------
+        tol = 1e-9                  # Tighter tolerance (4C uses 1e-9)
+        max_it = 1000               # Max Newton iterations per damping level
+        innerdamp_iter_max = 5      # Max Armijo backtracking iterations
+        damp_iter_max = 100         # Max outer damping iterations
+        damping = 1.0               # Global damping factor (halved if Newton fails)
+        
+        converged = false
         force_out = false
-        lambda_AS = 0.0
-        lambda_SA = 0.0
+        fp = 1e6                    # Merit function value at trial point
+
+        # Save the initial state for restart at each damping level
+        xi_S_init = xi_S
+
+        #------------------------------------------------------------------
+        # OUTER LOOP: Global damping — if Newton fails, halve damping
+        #------------------------------------------------------------------
+        for damp_iter in 1:damp_iter_max
+
+            # Reset to initial state for this damping attempt
+            lambda_AS = 0.0
+            lambda_SA = 0.0
+            xi_S = xi_S_init
+            force_out = false
+            converged = false
+            iter = 0
+
+            #--------------------------------------------------------------
+            # INNER LOOP: Newton iterations with Armijo line search
+            #--------------------------------------------------------------
+            while iter < max_it
+
+                #----------------------------------------------------------
+                # Step 1: Recompute stress and loading function at current state
+                #----------------------------------------------------------
+                if iter != 0
+                    # Voigt Model
+                    Cᵀ = (1 - xi_S) * Cᵀᴬ + xi_S * Cᵀᴹ
+                    E = (1 - xi_S) * Eᴬ + xi_S * Eᴹ
+
+                    # Reuss Model
+                    #Cᵀ = inv((1-xi_S)*inv(Cᵀᴬ) + xi_S*inv(Cᵀᴹ))
+                    #E = (Eᴬ)/(1 + (Eᴬ/Eᴹ -1) * xi_S)
+
+                    u_trial = xi_S * (n + α * I)
+                    eps_total_elastic = eps_total - εL * u_trial
+
+                    t_trial = Cᵀ * eps_total_elastic
+                    p_trial = (1/3) * E * (eps_total_elastic[1])
+
+                    tnorm_trial = norm_stress_deviatoric(t_trial)
+
+                    F_trial = tnorm_trial + 3.0 * α * p_trial
+
+                    F_f_AS_trial = F_trial - R_f_AS
+                    F_f_SA_trial = F_trial - R_f_SA
+                end
+
+                #----------------------------------------------------------
+                # Step 2: Compute Jacobian and residual at current state
+                #----------------------------------------------------------
+                a, b, c, d = jacobian_linear(F_trial, F_prev, 
+                    F_f_AS_trial, lambda_AS, H_AS,
+                    F_f_SA_trial, lambda_SA, H_SA, 
+                    n, xi_S, Eᴬ, Eᴹ, Gᴬ, Gᴹ, εL, α, eps_total_elastic, beam_ind, ind_G)
         
-        #SOLVE THE NONLINEAR SYSTEM OF EQUATIONS
-        while norm_res > tol && k < max_it
+                res1, res2 = residual_linear(F_trial, F_prev,
+                    F_f_AS_trial, lambda_AS, H_AS,
+                    F_f_SA_trial, lambda_SA, H_SA,
+                    xi_S)
+                
+                dR = Mat22(a, c, b, d)
+                R_k = Vec2(-res1, -res2)
 
-            if k != 0 # Recompute the trial deviatoric / volumetric parts of stress 
+                if det(dR) == 0.0
+                    # Jacobian is not invertible
+                    break
+                end
 
-                # Update the matrix constitutive and current total Young's modulus
-                # Voigt Model
-                Cᵀ = (1 - xi_S) * Cᵀᴬ + xi_S * Cᵀᴹ
-                E = (1 - xi_S) * Eᴬ + xi_S * Eᴹ
+                #----------------------------------------------------------
+                # Step 3: Compute Newton direction
+                #----------------------------------------------------------
+                Δlambda = dR \ R_k
 
-                # Reuss Model
-                #Cᵀ = inv((1-xi_S)*inv(Cᵀᴬ) + xi_S*inv(Cᵀᴹ))
-                #E = (Eᴬ)/(1 + (Eᴬ/Eᴹ -1) * xi_S)
+                # Merit function at current point: fk = ||R||²
+                fk = res1^2 + res2^2
 
-                # With the updated xi
-                u_trial = xi_S * (n + α * I)
-                eps_total_elastic = eps_total - εL * u_trial
+                #----------------------------------------------------------
+                # Step 4: Armijo backtracking line search
+                #----------------------------------------------------------
+                gamma = 1.0
+                accept = false
 
-                t_trial = Cᵀ * eps_total_elastic
-                p_trial = (1/3)* E * (eps_total_elastic[1])
+                lambda_AS_trial = 0.0
+                lambda_SA_trial = 0.0
+                xi_S_trial = 0.0
 
-                tnorm_trial = norm_stress_deviatoric(t_trial)
+                for innerdamp_iter in 1:innerdamp_iter_max
 
-                F_trial = tnorm_trial + 3.0*α * p_trial
+                    # Trial update with damped step
+                    lambda_AS_trial = lambda_AS + gamma * damping * Δlambda[1]
+                    lambda_SA_trial = lambda_SA + gamma * damping * Δlambda[2]
+                    xi_S_trial = xi_S_init + lambda_AS_trial + lambda_SA_trial
 
-                F_f_AS_trial = F_trial - R_f_AS
-                F_f_SA_trial = F_trial - R_f_SA
-            end
+                    # Recompute stress at trial point
+                    # Voigt Model
+                    Cᵀ_p = (1 - xi_S_trial) * Cᵀᴬ + xi_S_trial * Cᵀᴹ
+                    E_p = (1 - xi_S_trial) * Eᴬ + xi_S_trial * Eᴹ
 
-            a, b, c, d = jacobian_linear(F_trial, F_prev, 
-                F_f_AS_trial, lambda_AS, H_AS,
-                F_f_SA_trial, lambda_SA, H_SA, 
-                n, xi_S, Eᴬ, Eᴹ, Gᴬ, Gᴹ, εL, α, eps_total_elastic, beam_ind, ind_G)
-    
-            res1, res2 = residual_linear(F_trial, F_prev,
-                F_f_AS_trial, lambda_AS, H_AS,
-                F_f_SA_trial, lambda_SA, H_SA,
-                xi_S)
-            
-            dR = Mat22(a, c, b, d)
-            R = Vec2(-res1, -res2)
+                    # Reuss Model
+                    #Cᵀ_p = inv((1-xi_S_trial)*inv(Cᵀᴬ) + xi_S_trial*inv(Cᵀᴹ))
+                    #E_p = (Eᴬ)/(1 + (Eᴬ/Eᴹ -1) * xi_S_trial)
 
-            
-            if det(dR) != 0.0
-                Δlambda = dR\R
-            else
-                # Jacobian is not invertible, newton local failed to converge
-                return false
-            end
+                    u_p = xi_S_trial * (n + α * I)
+                    eps_elastic_p = eps_total - εL * u_p
 
-            Δlambda_AS = Δlambda[1]
-            Δlambda_SA = Δlambda[2]
-        
-            lambda_AS = lambda_AS + Δlambda_AS
-            lambda_SA = lambda_SA + Δlambda_SA
+                    t_p = Cᵀ_p * eps_elastic_p
+                    p_p = (1/3) * E_p * (eps_elastic_p[1])
 
-            xi_S = xi_S + Δlambda_AS + Δlambda_SA
+                    tnorm_p = norm_stress_deviatoric(t_p)
 
-            norm_res = norm(R) 
+                    F_p = tnorm_p + 3.0 * α * p_p
 
-            #if ind_G == 1 && beam_ind == 1
-            #    println("--------------------------------")
-            #    println("k: ", k)
-            #    println("xi_S: ", xi_S)
-            #    println("lambda_AS: ", lambda_AS)
-            #    println("lambda_SA: ", lambda_SA)
-            #end
+                    F_f_AS_p = F_p - R_f_AS
+                    F_f_SA_p = F_p - R_f_SA
 
+                    # Compute residual at trial point
+                    res1_p, res2_p = residual_linear(F_p, F_prev,
+                        F_f_AS_p, lambda_AS_trial, H_AS,
+                        F_f_SA_p, lambda_SA_trial, H_SA,
+                        xi_S_trial)
 
-            if k == 0
-                norm_R_0 = norm(R)
-            end
-        
-            if k != 0
-                norm_res = norm(R) / norm_R_0
-            end
+                    # Merit function at trial point: fp = ||R_p||²
+                    fp = res1_p^2 + res2_p^2
 
-            if xi_S > (1.0)
-                xi_S = 1.0
-                force_out = true
+                    # Armijo acceptance condition: fp <= (1 - gamma/2) * fk
+                    if fp <= (1.0 - gamma / 2.0) * fk
+                        accept = true
+                        break
+                    else
+                        # Halve the step size
+                        gamma *= 0.5
+                    end
+
+                end # end Armijo backtracking
+
+                #----------------------------------------------------------
+                # Step 5: Accept the step (with or without Armijo success)
+                #----------------------------------------------------------
+                lambda_AS = lambda_AS_trial
+                lambda_SA = lambda_SA_trial
+                xi_S = xi_S_trial
+
+                #----------------------------------------------------------
+                # Step 6: Check convergence
+                #----------------------------------------------------------
+                if fp < tol
+                    converged = true
+                    break
+                end
+
+                iter += 1
+
+            end # end Newton iterations
+
+            #--------------------------------------------------------------
+            # If converged, exit the outer damping loop
+            #--------------------------------------------------------------
+            if converged
                 break
             end
 
-            if xi_S < 0.0
-                xi_S = 0.0
-                force_out = true
-                break
-            end
-            
-            k = k+1
+            #--------------------------------------------------------------
+            # If not converged, halve the global damping and retry
+            #--------------------------------------------------------------
+            damping *= 0.5
+
+        end # end outer damping loop
+
+        #------------------------------------------------------------------
+        # Check if we converged at all
+        #------------------------------------------------------------------
+        if !converged
+            return false
         end
 
-        # Check the convergence criteria if there is no force_out
-        if force_out == false
-            if norm_res > tol
-                # Residual is not converged, newton local failed to converge
-                return false
-            end
-        end
-
-        # Compute the current matrix constitutive and current total Young's modulus
-
+        #------------------------------------------------------------------
+        # Update stress with the final xi_S
+        #------------------------------------------------------------------
         Cᵀ = (1 - xi_S) * Cᵀᴬ + xi_S * Cᵀᴹ
         E = (1 - xi_S) * Eᴬ + xi_S * Eᴹ
 
@@ -307,28 +397,16 @@ function superelasticity_newton_local(Eᴬ::Float64, Eᴹ::Float64, Gᴬ::Float6
         #Cᵀ = inv((1-xi_S)*inv(Cᵀᴬ) + xi_S*inv(Cᵀᴹ))
         #E = (Eᴬ)/(1 + (Eᴬ/Eᴹ -1) * xi_S)
 
-        # Update the stress in this state with the new xi_S
         u = xi_S * (n + α * I)
         t = Cᵀ * (eps_total - εL * u)
-        p = (1/3)* E * (eps_total[1] - εL * u[1])
+        p = (1/3) * E * (eps_total[1] - εL * u[1])
         sigma = t + p * I
-        F = norm_stress_deviatoric(t) + 3.0*α * p
+        F = norm_stress_deviatoric(t) + 3.0 * α * p
 
         # Update the current structures with the new xi_S
         superelastic_state.superelasticⁿ⁺¹.xi_S[ind_G] = xi_S
         superelastic_state.superelasticⁿ⁺¹.F[ind_G] = F
         superelastic_state.superelasticⁿ⁺¹.sigma[:,ind_G] = sigma
-
-        #if ind_G == 1 && beam_ind == 1
-        #    println("xi_S: ", xi_S)
-        #    println("Cᵀᴹ: ", Cᵀᴹ)
-        #    println("Cᵀ: ", Cᵀ)
-        #    println("E: ", E)
-        #    println("t: ", t)
-        #    println("p: ", p)
-        #    println("F: ", F)
-        #    println("u: ", u)
-        #end
 
     end
 
@@ -498,6 +576,7 @@ function superelasticity_matrix_tangent(Eᴬ::Float64, Eᴹ::Float64, Gᴬ::Floa
     return K̄ⁱⁿᵗ_gauss
     
 end
+
 
 
 

@@ -24,7 +24,7 @@ using Plots
 
 
 # Define node positions and connectivity for beams
-num_elements = 100
+num_elements = 10
 nnodes = num_elements + 1    # Total number of nodes
 beam_length = 20            # Total length of the beam
 positions = zeros(nnodes, 3)  # Initialize position matrix
@@ -49,18 +49,13 @@ initial_angular_accelerations = zeros(size(positions))  # Zero initial angular a
 plane = "xy"                         # Plane of the problem
 
 # Material and geometric properties for beams
-E = 60000                         # Young's modulus (MPa)
+E = 51000                         # Young's modulus (MPa)
 ν = 0.3                              # Poisson's ratio
 ρ = 6.5e-9                                # Density (tonnes/mm³)
-radius = 0.745                         # Beam radius (mm)
-damping = 0.0                          # Damping coefficient
-εL = 0.075/sqrt(2/3)                          # Max transformation strain
-sigma_S_AS = 520                    # Start stress for A→S (MPa)
-sigma_F_AS = 600                    # Finish stress for A→S (MPa)
-sigma_S_SA = 300                    # Start stress for S→A (MPa)
-sigma_F_SA = 200                    # Finish stress for S→A (MPa)
-sigma_c_SAS = 520                     # Critical stress for SAS transformation (MPa)
-Eᴹ = 60000                         # Martensite Young's modulus (MPa)
+radius = 0.035                         # Beam radius (mm)
+damping = 0                          # Damping coefficient
+y0 = 170.0                         # Yield stress (MPa)
+K = 20000.0                         # Plastic modulus (MPa)
 
 # Build nodes and beams
 nodes = NodesBeams(
@@ -73,8 +68,7 @@ initial_angular_velocities,
 initial_angular_accelerations, 
 plane
 )
-
-beams = SuperElasticBeams(nodes, connectivity, E, ν, ρ, εL, sigma_S_AS, sigma_F_AS, sigma_S_SA, sigma_F_SA, sigma_c_SAS, Eᴹ, radius, damping)
+beams = PlasticBeams(nodes, connectivity, E, ν, ρ, y0, K, radius, damping)
 
 #----------------------------------
 # BEAMS CONFIGURATION DEFINITIONS
@@ -82,11 +76,11 @@ beams = SuperElasticBeams(nodes, connectivity, E, ν, ρ, εL, sigma_S_AS, sigma
 
 # External force: global DOF index = (node_index - 1) * 6 + component (1–3 = ux,uy,uz; 4–6 = rotations)
 # Beam along +Y → apply force in Y at the tip node (uy DOF).
-end_time = 40.0              # End time (s): loading 0→20s, unloading 20→40s
-t_peak   = 20.0              # Time at peak force
+simulation_end_time = 30.0              # End time (s): loading 0→15s, unloading 15→30s
+t_peak              = 15.0              # Time at peak force
 loaded_dofs = [(nnodes-1)*6 + 1]        # Tip node: X displacement (transverse force)
 force_max = 20.0                        # Maximum force (N)
-force_function(t, i) = t <= t_peak ? force_max * t / t_peak : force_max * (end_time - t) / t_peak   # 0→20N→0N
+force_function(t, i) = t <= t_peak ? force_max * t / t_peak : force_max * (simulation_end_time - t) / t_peak   # 0→60N→0N
 concentrated_force = ConcentratedForce(force_function, loaded_dofs)  
 
 # Degrees of freedom (DOFs) definition
@@ -107,11 +101,11 @@ conf = BeamsConfiguration(nodes, beams, Loads(concentrated_force), BoundaryCondi
 γ = 0.5 * (1 - 2 * α)  # Time-stepping parameter
 
 # General time stepping parameters
-initial_timestep = 1e-1  # Initial time step size
+initial_timestep = 1e-2  # Initial time step size
 min_timestep = 1e-8    # Minimum allowed time step
-max_timestep = 1e-1  # Maximum allowed time step (could be adjusted based on system behavior)
+max_timestep = 1e-2   # Maximum allowed time step (could be adjusted based on system behavior)
 output_timestep = 1E-2   # Time step for output plotting or visualization
-simulation_end_time = 39.9 # End time — matches force_function definition above
+simulation_end_time = 30.0 # End time — matches force_function definition above
 
 # Convergence criteria for the solver
 tolerance_residual = 1e-5   # Residual tolerance for convergence checks

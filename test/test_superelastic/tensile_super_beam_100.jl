@@ -38,18 +38,18 @@ initial_angular_accelerations = zeros(size(positions))  # Zero initial angular a
 plane = "xy"                         # Plane of the problem
 
 # Material and geometric properties for beams
-E = 51000                         # Young's modulus (MPa)
+E = 60000                         # Young's modulus (MPa)
 ν = 0.3                              # Poisson's ratio
 ρ = 6.5e-9                                # Density (tonnes/mm³)
 radius = 0.035                         # Beam radius (mm)
 damping = 0                          # Damping coefficient
-εL = 0.055                           # Max transformation strain
+εL = 0.075                           # Max transformation strain
 sigma_S_AS = 400                  # Start stress for A→S (MPa)
 sigma_F_AS = 500                    # Finish stress for A→S (MPa)
 sigma_S_SA = 300                    # Start stress for S→A (MPa)
 sigma_F_SA = 200                    # Finish stress for S→A (MPa)
 sigma_c_SAS = 400                     # Critical stress for SAS transformation (MPa)
-Eᴹ = 51000                         # Martensite Young's modulus (MPa)
+Eᴹ = 60000                         # Martensite Young's modulus (MPa)
 
 # Build nodes and beams
 nodes = NodesBeams(
@@ -62,7 +62,6 @@ initial_angular_velocities,
 initial_angular_accelerations, 
 plane
 )
-material = :superelastic
 beams = SuperElasticBeams(nodes, connectivity, E, ν, ρ, εL, sigma_S_AS, sigma_F_AS, sigma_S_SA, sigma_F_SA, sigma_c_SAS, Eᴹ, radius, damping)
 #----------------------------------
 # BEAMS CONFIGURATION DEFINITIONS
@@ -92,16 +91,16 @@ conf = BeamsConfiguration(nodes, beams, Loads(concentrated_force), BoundaryCondi
 γ = 0.5 * (1 - 2 * α)  # Time-stepping parameter
 
 # General time stepping parameters
-initial_timestep = 1e-1  # Initial time step size
+initial_timestep = 1e-2  # Initial time step size
 min_timestep = 1e-10    # Minimum allowed time step
-max_timestep = 1e-1   # Maximum allowed time step (could be adjusted based on system behavior)
+max_timestep = 1e-2   # Maximum allowed time step (could be adjusted based on system behavior)
 output_timestep = 1e-1   # Time step for output plotting or visualization
-simulation_end_time = 3.9 # End time for the simulation (duration of the analysis)
+simulation_end_time = 4 # End time for the simulation (duration of the analysis)
 
 # Convergence criteria for the solver
-tolerance_residual = 1e-6   # Residual tolerance for convergence checks
-tolerance_displacement = 1e-6    # Tolerance for changes in displacement (ΔD)
-max_iterations = 10      # Maximum number of iterations for the solver
+tolerance_residual = 1e-5   # Residual tolerance for convergence checks
+tolerance_displacement = 1e-5    # Tolerance for changes in displacement (ΔD)
+max_iterations = 20      # Maximum number of iterations for the solver
 
 # Store solver parameters in a structured Params object
 params = SimulationParams(;
@@ -149,21 +148,31 @@ p_force_time = plot(times, forces,
 
 # Save the force vs time plot
 force_time_plot_file = joinpath("test", "output3D", "force_vs_time.png")
-savefig(p_force_time, force_time_plot_file)
-println("Plot saved to: $force_time_plot_file")
+#savefig(p_force_time, force_time_plot_file)
+#println("Plot saved to: $force_time_plot_file")
 
 # Display the plot
-display(p_force_time)
+#display(p_force_time)
 
-# Create force vs displacement plot
-p = plot(displacements, forces,
+# Split into loading (t <= 2) and unloading (t > 2) phases
+loading_idx   = times .<= 2.0
+unloading_idx = times .>  2.0
+
+# Create force vs displacement plot with blue loading and red unloading
+p = plot(displacements[loading_idx], forces[loading_idx],
     xlabel="Displacement (mm)",
     ylabel="Force (N)",
     title="Force vs Displacement at tip of the beam",
     linewidth=2,
     grid=true,
-    legend=false,
+    label="Loading",
+    color=:blue,
     dpi=300,
+)
+plot!(p, displacements[unloading_idx], forces[unloading_idx],
+    linewidth=2,
+    label="Unloading",
+    color=:red,
 )
 
 # Save the plot
@@ -172,7 +181,7 @@ savefig(p, plot_file)
 println("Plot saved to: $plot_file")
 
 # Display the plot
-display(p)
+#display(p)
 
 
 #----------------------------------------------------
@@ -243,16 +252,5 @@ savefig(p_stress_strain, stress_strain_plot_file)
 println("Stress vs Strain plot saved to: $stress_strain_plot_file")
 
 # Display the plot
-#display(p_stress_strain)
-
-
-
-
-
-
-
-
-
-
-
+display(p_stress_strain)
 

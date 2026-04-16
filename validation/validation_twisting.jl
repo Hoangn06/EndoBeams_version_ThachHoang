@@ -12,21 +12,13 @@ using Plots
 #----------------------------------------------------
 
 # Define node positions and connectivity for beams
-# Generate 1001 nodes (for 1000 elements) along the Y-axis from 0.0 to 0.1
-num_elements = 100
-nnodes = num_elements + 1    # Total number of nodes
-beam_length = 0.1            # Total length of the beam
-positions = zeros(nnodes, 3)  # Initialize position matrix
-for i in 1:nnodes
-    positions[i, :] = [0.0, (i-1) * beam_length / num_elements, 0.0]
-end
+n_elements = 1000                        # Number of beam elements
+nnodes = n_elements + 1                # Total number of nodes
+y_coords = range(0.0, 0.1, length=nnodes)
+positions = hcat(zeros(nnodes), collect(y_coords), zeros(nnodes))
 
-nbeams = nnodes - 1                    # Number of beam elements
-# Generate connectivity for beam elements
-connectivity = zeros(Int, nbeams, 2)
-for i in 1:nbeams
-    connectivity[i, :] = [i, i+1]
-end
+nbeams = n_elements                    # Number of beam elements
+connectivity = hcat(1:nbeams, 2:nnodes)  # Connectivity for beam elements
 
 # Initial conditions for displacements, velocities, accelerations, and rotations
 initial_displacements = zeros(size(positions))       # Zero initial displacements
@@ -38,18 +30,18 @@ initial_angular_accelerations = zeros(size(positions))  # Zero initial angular a
 plane = "xy"                         # Plane of the problem
 
 # Material and geometric properties for beams
-E = 51000                         # Young's modulus (MPa)
+E = 60000                         # Young's modulus (MPa)
 ν = 0.3                              # Poisson's ratio
 ρ = 6.5e-9                                # Density (tonnes/mm³)
 radius = 0.035                         # Beam radius (mm)
 damping = 0                          # Damping coefficient
 εL = 0.055                           # Max transformation strain
 sigma_S_AS = 400                  # Start stress for A→S (MPa)
-sigma_F_AS = 500                    # Finish stress for A→S (MPa)
+sigma_F_AS = 500             # Finish stress for A→S (MPa)
 sigma_S_SA = 300                    # Start stress for S→A (MPa)
-sigma_F_SA = 200                    # Finish stress for S→A (MPa)
+sigma_F_SA = 200                 # Finish stress for S→A (MPa)
 sigma_c_SAS = 400                     # Critical stress for SAS transformation (MPa)
-Eᴹ = 51000                         # Martensite Young's modulus (MPa)
+Eᴹ = 60000                         # Martensite Young's modulus (MPa)
 
 # Build nodes and beams
 nodes = NodesBeams(
@@ -62,16 +54,15 @@ initial_angular_velocities,
 initial_angular_accelerations, 
 plane
 )
-material = :superelastic
 beams = SuperElasticBeams(nodes, connectivity, E, ν, ρ, εL, sigma_S_AS, sigma_F_AS, sigma_S_SA, sigma_F_SA, sigma_c_SAS, Eᴹ, radius, damping)
+#----------------------------------
 #----------------------------------
 # BEAMS CONFIGURATION DEFINITIONS
 #----------------------------------
 
-# External force: global DOF index = (node_index - 1) * 6 + component (1–3 = ux,uy,uz; 4–6 = rotations)
-# Beam along +Y → apply force in Y at the tip node (uy DOF).
-loaded_dofs = [(nnodes - 1) * 6 + 2]
-force_function(t,i) = t <= 2.0 ? 1.5 * t : 1.5 * (4.0 - t) # Loading until t=2, then unloading back to 0 at t=4
+# External force
+loaded_dofs = [(nnodes - 1) * 6 + 5]   # Rotation Y DOF at the tip node
+force_function(t,i) = t <= 5 ? 0.01*t : 0.01*(10 - t)  # Loading until t=5, then unloading back to 0 at t=10
 concentrated_force = ConcentratedForce(force_function, loaded_dofs)  
 
 # Degrees of freedom (DOFs) definition
@@ -92,15 +83,15 @@ conf = BeamsConfiguration(nodes, beams, Loads(concentrated_force), BoundaryCondi
 γ = 0.5 * (1 - 2 * α)  # Time-stepping parameter
 
 # General time stepping parameters
-initial_timestep = 1e-1  # Initial time step size
+initial_timestep = 1e-1    # Initial time step size
 min_timestep = 1e-10    # Minimum allowed time step
-max_timestep = 1e-1   # Maximum allowed time step (could be adjusted based on system behavior)
+max_timestep = 1e-1    # Maximum allowed time step (could be adjusted based on system behavior)
 output_timestep = 1e-1   # Time step for output plotting or visualization
-simulation_end_time = 3.9 # End time for the simulation (duration of the analysis)
+simulation_end_time = 10 # End time for the simulation (duration of the analysis)
 
 # Convergence criteria for the solver
-tolerance_residual = 1e-6   # Residual tolerance for convergence checks
-tolerance_displacement = 1e-6    # Tolerance for changes in displacement (ΔD)
+tolerance_residual = 1e-3   # Residual tolerance for convergence checks
+tolerance_displacement = 1e-3    # Tolerance for changes in displacement (ΔD)
 max_iterations = 10      # Maximum number of iterations for the solver
 
 # Store solver parameters in a structured Params object
@@ -118,48 +109,44 @@ run_simulation!(conf, params)
 println("Simulation finished")
 
 #----------------------------------------------------
-# PLOT FORCE VS DISPLACEMENT
+# PLOT MOMENT VS ROTATION
 #----------------------------------------------------
 
-# Read displacement data from CSV file
-# Format: Time, DispX1, DispY1, DispZ1, DispX2, DispY2, DispZ2, ...
-csv_file = joinpath("test", "output3D", "displacement_data.csv")
-displacement_data, header = readdlm(csv_file, ',', header=true)
+# Read rotation data from CSV file
+csv_file = joinpath("test", "output3D", "rotation_data.csv")
+rotation_data, header = readdlm(csv_file, ',', header=true)
 
-# Extract time and displacement columns (CSV: Time, DispX1, DispY1, DispZ1, … per node)
-tip_node = nnodes
-disp_y_col = 1 + 3 * (tip_node - 1) + 2   # DispY{tip_node}
-times = Float64.(displacement_data[:, 1])
-displacements = Float64.(displacement_data[:, disp_y_col])
+# Extract time and rotation columns
+times = Float64.(rotation_data[:, 1])  # Time column
+rotations = Float64.(rotation_data[:, 1 + (nnodes - 1) * 3 + 2])  # Rotation Y at tip node
 
-# Calculate force: piecewise function
-# force = 1.5 * time if time <= 2, else force = 1.5 * (4.0 - time)
-forces = [t <= 2 ? 1.5 * t : 1.5 * (4.0 - t) for t in times]
+# Calculate moment: piecewise function 
+moments = [t <= 5 ? 0.01*t : 0.01*(10 - t) for t in times] 
 
-# Create force vs time plot
-p_force_time = plot(times, forces,
+# Create moment vs time plot
+p_moment_time = plot(times, moments,
     xlabel="Time (s)",
-    ylabel="Force (N)",
-    title="Force vs Time",
+    ylabel="Moment (N·mm)",
+    title="Moment vs Time",
     linewidth=2,
     grid=true,
     legend=false,
     dpi=300,
 )
 
-# Save the force vs time plot
-force_time_plot_file = joinpath("test", "output3D", "force_vs_time.png")
-savefig(p_force_time, force_time_plot_file)
-println("Plot saved to: $force_time_plot_file")
+# Save the moment vs time plot
+moment_time_plot_file = joinpath("test", "output3D", "moment_vs_time.png")
+savefig(p_moment_time, moment_time_plot_file)
+println("Plot saved to: $moment_time_plot_file")
 
 # Display the plot
-display(p_force_time)
+display(p_moment_time)
 
-# Create force vs displacement plot
-p = plot(displacements, forces,
-    xlabel="Displacement (mm)",
-    ylabel="Force (N)",
-    title="Force vs Displacement at tip of the beam",
+# Create moment vs rotation plot
+p = plot(rotations, moments,
+    xlabel="Rotation (rad)",
+    ylabel="Moment (N·mm)",
+    title="Moment vs Rotation at tip of the beam",
     linewidth=2,
     grid=true,
     legend=false,
@@ -167,7 +154,7 @@ p = plot(displacements, forces,
 )
 
 # Save the plot
-plot_file = joinpath("test", "output3D", "force_vs_displacement.png")
+plot_file = joinpath("test", "output3D", "moment_vs_rotation.png")
 savefig(p, plot_file)
 println("Plot saved to: $plot_file")
 
@@ -232,10 +219,9 @@ for gp in 2:n_gauss_points
     )
 end
 
-# Add figure caption below xlabel (compact version) and set Y-axis limits
+# Add figure caption below xlabel (compact version)
 plot!(p_stress_strain, 
-    xlabel="Von-Mises Strain\n──────────────────────────────────────────────────────────── \n Fig.1. Von-Mises Stress vs. Von-Mises Strain during tensile simulation",
-    )
+    xlabel="Von-Mises Strain\n──────────────────────────────────────────────────────────── \n Fig.1. Von-Mises Stress vs. Von-Mises Strain during tensile simulation")
 
 # Save the plot
 stress_strain_plot_file = joinpath("test", "output3D", "stress_vs_strain.png")
@@ -244,12 +230,6 @@ println("Stress vs Strain plot saved to: $stress_strain_plot_file")
 
 # Display the plot
 #display(p_stress_strain)
-
-
-
-
-
-
 
 
 

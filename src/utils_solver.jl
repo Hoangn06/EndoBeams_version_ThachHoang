@@ -85,7 +85,7 @@ function compute_tangent_and_residuals_corrector!(state::SimulationState, Δt, �
     # Compute residual vector (r) at corrector step
     # r = (1+α) * (external + contact - internal forces) - α * (previous external + contact - internal forces) - previous contact force
     @. state.solⁿ⁺¹.r = (1 + α) * (state.forcesⁿ⁺¹.fᵉˣᵗ + state.forcesⁿ⁺¹.Tᶜ - state.forcesⁿ⁺¹.Tⁱⁿᵗ) - α * (state.forcesⁿ.fᵉˣᵗ + state.forcesⁿ.Tᶜ - state.forcesⁿ.Tⁱⁿᵗ) - state.forcesⁿ⁺¹.Tᵏ
-
+    
 end
 
 # ---------------------------------------------------------------

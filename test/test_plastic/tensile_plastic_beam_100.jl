@@ -43,13 +43,8 @@ E = 51000                         # Young's modulus (MPa)
 ρ = 6.5e-9                                # Density (tonnes/mm³)
 radius = 0.035                         # Beam radius (mm)
 damping = 0                          # Damping coefficient
-εL = 0.055                           # Max transformation strain
-sigma_S_AS = 400                  # Start stress for A→S (MPa)
-sigma_F_AS = 500                    # Finish stress for A→S (MPa)
-sigma_S_SA = 300                    # Start stress for S→A (MPa)
-sigma_F_SA = 200                    # Finish stress for S→A (MPa)
-sigma_c_SAS = 400                     # Critical stress for SAS transformation (MPa)
-Eᴹ = 51000                         # Martensite Young's modulus (MPa)
+y0 = 170.0                         # Yield stress (MPa)
+K = 1000.0                         # Plastic modulus (MPa)
 
 # Build nodes and beams
 nodes = NodesBeams(
@@ -62,15 +57,14 @@ initial_angular_velocities,
 initial_angular_accelerations, 
 plane
 )
-material = :superelastic
-beams = SuperElasticBeams(nodes, connectivity, E, ν, ρ, εL, sigma_S_AS, sigma_F_AS, sigma_S_SA, sigma_F_SA, sigma_c_SAS, Eᴹ, radius, damping)
+beams = PlasticBeams(nodes, connectivity, E, ν, ρ, y0, K, radius, damping)
+
 #----------------------------------
 # BEAMS CONFIGURATION DEFINITIONS
 #----------------------------------
 
-# External force: global DOF index = (node_index - 1) * 6 + component (1–3 = ux,uy,uz; 4–6 = rotations)
-# Beam along +Y → apply force in Y at the tip node (uy DOF).
-loaded_dofs = [(nnodes - 1) * 6 + 2]
+# External force
+loaded_dofs = [(nnodes - 1) * 6 + 2]   # DispY DOF at the tip node (axial direction)
 force_function(t,i) = t <= 2.0 ? 1.5 * t : 1.5 * (4.0 - t) # Loading until t=2, then unloading back to 0 at t=4
 concentrated_force = ConcentratedForce(force_function, loaded_dofs)  
 
@@ -92,21 +86,22 @@ conf = BeamsConfiguration(nodes, beams, Loads(concentrated_force), BoundaryCondi
 γ = 0.5 * (1 - 2 * α)  # Time-stepping parameter
 
 # General time stepping parameters
-initial_timestep = 1e-1  # Initial time step size
-min_timestep = 1e-10    # Minimum allowed time step
-max_timestep = 1e-1   # Maximum allowed time step (could be adjusted based on system behavior)
-output_timestep = 1e-1   # Time step for output plotting or visualization
-simulation_end_time = 3.9 # End time for the simulation (duration of the analysis)
+initial_timestep = 1e-2    # Initial time step size
+min_timestep = 1e-10   # Minimum allowed time step
+max_timestep = 1e-2    # Maximum allowed time step (could be adjusted based on system behavior)
+output_timestep = 1e-2   # Time step for output plotting or visualization
+simulation_end_time = 4 # End time for the simulation (duration of the analysis)
 
 # Convergence criteria for the solver
-tolerance_residual = 1e-6   # Residual tolerance for convergence checks
-tolerance_displacement = 1e-6    # Tolerance for changes in displacement (ΔD)
+tolerance_residual = 1e-5   # Residual tolerance for convergence checks
+tolerance_displacement = 1e-5    # Tolerance for changes in displacement (ΔD)
 max_iterations = 10      # Maximum number of iterations for the solver
 
 # Store solver parameters in a structured Params object
 params = SimulationParams(;
 α, β, γ, initial_timestep, min_timestep, max_timestep, output_timestep, simulation_end_time, tolerance_residual, tolerance_displacement, max_iterations, output_dir = "test/output3D"
 , verbose = true)
+
 
 #----------------------------------------------------
 # START SIMULATION
