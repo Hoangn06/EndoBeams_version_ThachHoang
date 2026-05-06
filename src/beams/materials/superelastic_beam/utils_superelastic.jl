@@ -59,14 +59,6 @@ function trial_state(Eᴬ::Float64, Eᴹ::Float64, Gᴬ::Float64, Gᴹ::Float64,
 
     # Step 0: Initialize the variables for the trial state
     xi_S = superelastic_state.superelasticⁿ.xi_S[ind_G] # The martensite fraction is the same as the previous step
-
-    if xi_S > 1.0
-        xi_S = 1.0
-    end
-    
-    if xi_S < 0.0
-        xi_S = 0.0
-    end
  
     # Step 0.2: Compute the total strain at the current Gauss points
     # Concatenate DOFs: [ū, Θ̅₁[1], Θ̅₁[2], Θ̅₁[3], Θ̅₂[1], Θ̅₂[2], Θ̅₂[3]]
@@ -390,6 +382,17 @@ function superelasticity_newton_local(Eᴬ::Float64, Eᴹ::Float64, Gᴬ::Float6
         #------------------------------------------------------------------
         # Update stress with the final xi_S
         #------------------------------------------------------------------
+
+        if xi_S > 1.0
+            xi_S = 1.0
+            H_AS = 0.0
+        end
+
+        if xi_S < 0.0
+            xi_S = 0.0
+            H_SA = 0.0
+        end
+
         Cᵀ = (1 - xi_S) * Cᵀᴬ + xi_S * Cᵀᴹ
         E = (1 - xi_S) * Eᴬ + xi_S * Eᴹ
 
@@ -407,6 +410,8 @@ function superelasticity_newton_local(Eᴬ::Float64, Eᴹ::Float64, Gᴬ::Float6
         superelastic_state.superelasticⁿ⁺¹.xi_S[ind_G] = xi_S
         superelastic_state.superelasticⁿ⁺¹.F[ind_G] = F
         superelastic_state.superelasticⁿ⁺¹.sigma[:,ind_G] = sigma
+        superelastic_state.superelasticⁿ⁺¹.H_AS[ind_G] = H_AS
+        superelastic_state.superelasticⁿ⁺¹.H_SA[ind_G] = H_SA
 
     end
 
@@ -420,13 +425,7 @@ function superelasticity_internal_force(superelastic_state::Union{SuperelasticSt
     beam_ind::Int=0)
 
     sigma = Vec3(superelastic_state.superelasticⁿ⁺¹.sigma[:,ind_G])
-
-    #if ind_G == 1 && beam_ind == 1
-    #    println("Internal force: -----------")
-    #    println("t: ", t)
-    #    println("p: ", p)
-    #end
-    
+ 
     T̄ⁱⁿᵗ_gauss = Be' * sigma
 
     return T̄ⁱⁿᵗ_gauss
@@ -457,10 +456,6 @@ function superelasticity_matrix_tangent(Eᴬ::Float64, Eᴹ::Float64, Gᴬ::Floa
     Cᴱ = (1 - xi_S) * Cᴱᴬ + xi_S * Cᴱᴹ
     E = (1 - xi_S) * Eᴬ + xi_S * Eᴹ
 
-    # Reuss model for A-M
-    #Cᴱ = inv((1-xi_S)*inv(Cᴱᴬ) + xi_S*inv(Cᴱᴹ))
-    #E = (Eᴬ)/(1 + (Eᴬ/Eᴹ -1) * xi_S)
-
     # Compute the values of the direction of the transformation and the transformation strain
     e = deviatoric_tensor(eps_total)
     e_norm = norm_strain_deviatoric(e)
@@ -470,14 +465,6 @@ function superelasticity_matrix_tangent(Eᴬ::Float64, Eᴹ::Float64, Gᴬ::Floa
         n = e / e_norm
     end
     u = xi_S * (n + α * I)
-
-
-    #if ind_G == 1 && beam_ind == 1
-    #    println("Matrix tangent: ----------")
-    #    println("xi_S: ", xi_S)
-    #    println("F: ", F)
-    #    println("u: ", tensors_state.Tensorsⁿ⁺¹.u[:,ind_G])
-    #end
 
     # Compute the current total elastic strain
     eps_total_elastic = eps_total - εL * u
@@ -518,10 +505,6 @@ function superelasticity_matrix_tangent(Eᴬ::Float64, Eᴹ::Float64, Gᴬ::Floa
     A_AS = - lambda_AS - H_AS * (1-xi_S)
     A_SA = - lambda_SA + H_SA * xi_S
 
-    # Compute components of the consistent tangent matrix
-    # Compute K11 in the term K1 = εL *  xi * dn 
-    # Compute N_d = 1/||e|| * (I - n * n')
-
     n_t =  Diagonal(Vec3((3.0/2.0), (1.0/2.0), (1.0/2.0))) * n
 
     if e_norm != 0.0
@@ -531,7 +514,7 @@ function superelasticity_matrix_tangent(Eᴬ::Float64, Eᴹ::Float64, Gᴬ::Floa
     end
 
     K11 = εL * xi_S * N_d * Mat33{Float64}(Idev)
-
+    
     # Compute K21 K22 K31 K32
         
     # Compute T_1_AS, T_2_AS, T_1_SA, T_2_SA
@@ -549,27 +532,12 @@ function superelasticity_matrix_tangent(Eᴬ::Float64, Eᴹ::Float64, Gᴬ::Floa
     K32 = εL * α * (T_2_AS + T_2_SA ) * I * I'
 
     # Compute K41
-
     K411 = (T_1_AS + T_1_SA) * n' * Cᴱ + (T_2_AS + T_2_SA) * I'
     # Voigt Model
     K41 = (Cᴱᴹ - Cᴱᴬ) * (eps_total_elastic * K411) 
-    # Reuss Model
-    #dC = -Cᴱ * (inv(Cᴱᴹ) - inv(Cᴱᴬ)) * Cᴱ
-    #K41 = dC * eps_total_elastic * K411
 
     # Compute the matrix consistent tangent matrix
     C_const = K41 + (Cᴱ - Cᴱ * (K11 + K21 + K22 + K31 + K32))
-
-    #if ind_G == 1 && beam_ind == 1
-    #    println("--------------------------------")
-    #    println("K41: ", K41)
-    #    println("K11: ", K11)
-    #    println("K21: ", K21)
-    #    println("K22: ", K22)
-    #    println("K31: ", K31)
-    #    println("K32: ", K32)
-    #    println("C_const: ", C_const)
-    #end
 
     K̄ⁱⁿᵗ_gauss = Be' * C_const * Be
 

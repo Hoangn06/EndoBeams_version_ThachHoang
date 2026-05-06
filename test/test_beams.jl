@@ -65,18 +65,25 @@ beams = ElasticBeams(nodes, connectivity, E, ν, ρ, radius, damping)
 # BEAMS CONFIGURATION DEFINITIONS
 #----------------------------------
 
-# External force
-loaded_dofs = [27]   # Degree of freedom where the external force is applied
-force_function(t,i) = 100 * t # Time-dependent external force function
-concentrated_force = ConcentratedForce(force_function, loaded_dofs)  
+# Displacement-controlled loading: impose Z-displacement at the tip node (node 9)
+# DOF = (node - 1) * 6 + component  →  (9-1)*6 + 3 = 51  (global Z-translation)
+tip_dof = (nnodes - 1) * 6 + 3
+u_max   = 5.0                              # Maximum imposed displacement (m)
+T_end   = 10.0                             # Duration of the linear ramp (s)
+displacement_function(t) = u_max * t / T_end   # Linear ramp: 0 → u_max over T_end seconds
+displacementimposed = ImposedDisplacement([tip_dof], displacement_function)
+
+# No concentrated force (displacement-controlled)
+force_function(t, i) = 0.0
+concentrated_force = ConcentratedForce(force_function, Int[])
 
 # Degrees of freedom (DOFs) definition
 ndofs = nnodes * 6                     # Total number of DOFs (6 per node for displacement and rotation)
-blocked_dofs = 1:6                      # First 6 DOFs are fixed (e.g., at the boundary)
+blocked_dofs = 1:6                     # First 6 DOFs are fixed (encastre at node 1)
 encastre = Encastre(blocked_dofs)
 
 # Beam configuration struct initialization
-conf = BeamsConfiguration(nodes, beams, Loads(concentrated_force), BoundaryConditions(encastre, ndofs))  # Store the configuration for beams
+conf = BeamsConfiguration(nodes, beams, Loads(concentrated_force), BoundaryConditions(encastre, displacementimposed, ndofs))
 
 #----------------------------------------------------
 # SOLVER DEFINITIONS
@@ -88,16 +95,18 @@ conf = BeamsConfiguration(nodes, beams, Loads(concentrated_force), BoundaryCondi
 γ = 0.5 * (1 - 2 * α)  # Time-stepping parameter
 
 # General time stepping parameters
-initial_timestep = 1e-5    # Initial time step size
-min_timestep = 1e-10    # Minimum allowed time step
-max_timestep = 1e-2    # Maximum allowed time step (could be adjusted based on system behavior)
-output_timestep = 1e-4    # Time step for output plotting or visualization
-simulation_end_time = 1 # End time for the simulation (duration of the analysis)
+# Δt = 1 s keeps the problem in the quasi-static regime (Δt >> sqrt(M/K) ≈ 0.016 s)
+# so that elastic reaction forces dominate the inertial forces in each step.
+initial_timestep = 1.0     # Initial time step size (s)
+min_timestep     = 1e-10   # Minimum allowed time step
+max_timestep     = 1.0     # Maximum allowed time step
+output_timestep  = 1.0     # Time step for output/visualization
+simulation_end_time = T_end   # End time matches the ramp duration
 
 # Convergence criteria for the solver
-tolerance_residual = 1e-3   # Residual tolerance for convergence checks
-tolerance_displacement = 1e-3    # Tolerance for changes in displacement (ΔD)
-max_iterations = 10      # Maximum number of iterations for the solver
+tolerance_residual    = 1e-2   # Residual tolerance (slightly loose: res_norm normalized by elastic reactions)
+tolerance_displacement = 1e-3  # Tolerance for displacement increment ΔD
+max_iterations = 10            # Maximum Newton iterations per step
 
 # Store solver parameters in a structured Params object
 params = SimulationParams(;
@@ -108,6 +117,41 @@ params = SimulationParams(;
 # START SIMULATION
 #----------------------------------------------------
 
+using Plots
+
 # Run the solver with the defined configurations and parameters
 run_simulation!(conf, params)
 
+println("Simulation finished")
+
+#----------------------------------------------------
+# PLOT TIP Z-DISPLACEMENT vs TIME
+#----------------------------------------------------
+
+# Read displacement data (format: Time, DispX1, DispY1, DispZ1, DispX2, ...)
+csv_file = joinpath("test", "output3D", "displacement_data.csv")
+displacement_data, _ = readdlm(csv_file, ',', header=true)
+
+times = Float64.(displacement_data[:, 1])
+
+# Column for Z-displacement of tip node (node 9): 1 + (node-1)*3 + 3
+tip_disp_col = 1 + (nnodes - 1) * 3 + 3
+tip_disp_Z   = Float64.(displacement_data[:, tip_disp_col])
+
+# Imposed displacement target (for comparison)
+imposed_vals = [displacement_function(t) for t in times]
+
+p = plot(times, [tip_disp_Z imposed_vals],
+    xlabel  = "Time (s)",
+    ylabel  = "Z-displacement of tip node (m)",
+    title   = "Imposed Z-displacement — tip node 9",
+    label   = ["FEM result" "Target (imposed)"],
+    linewidth = 2,
+    linestyle = [:solid :dash],
+    grid    = true,
+    dpi     = 300,
+)
+plot_file = joinpath("test", "output3D", "imposed_displacement_tip.png")
+savefig(p, plot_file)
+println("Plot saved to: $plot_file")
+display(p)

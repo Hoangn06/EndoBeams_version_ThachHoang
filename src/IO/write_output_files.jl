@@ -1,202 +1,505 @@
-using DelimitedFiles
 
-# ------------------------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------------------------
-# ROTATION DATA STORAGE AND WRITING
-# ------------------------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------
+# Convert variables
+# -------------------------------------------------------------------------------------------
 
-# Structure to store rotation data during simulation for all nodes
-mutable struct RotationStorage
-    times::Vector{Float64}
-    rotations::Vector{Vector{Float64}}  # Each entry contains 
-    n_nodes::Int  # Node number
-    
-    function RotationStorage()
-        new(Float64[], Vector{Float64}[], 0)
+"""
+Convert a vector of `Vec3{Float64}` to a matrix of shape `n × 3`.
+
+# Arguments
+- `arr::Vector{Vec3{Float64}}`: Vector of 3D points.
+
+# Returns
+- `Matrix{Float64}`: Matrix with 3 columns (x, y, z coordinates), where each row 
+  corresponds to a `Vec3` in the input vector.
+"""
+function vec3_array_to_matrix(arr)
+    n = length(arr)
+    mat = Matrix{Float64}(undef, n, 3)
+    for i in 1:n
+        v = arr[i]
+        mat[i, 1] = v.x
+        mat[i, 2] = v.y
+        mat[i, 3] = v.z
     end
+    return mat
 end
 
-# Function to accumulate rotation data when simulation converges
-function accumulate_rotation_data!(storage::RotationStorage, conf::BeamsConfiguration, t::Float64)
-    n_nodes = length(conf.nodes)
-    if n_nodes >= 1
-        # Set number of nodes on first call
-        if storage.n_nodes == 0
-            storage.n_nodes = n_nodes
-        end
-        
-        push!(storage.times, t)
-        
-        all_rotations = Float64[]
-        for node_idx in 1:n_nodes
-            # Extract total rotation angle from rotation matrix R
-            # toangle converts rotation matrix to axis-angle representation
-            total_rotation = toangle(conf.nodes.R[node_idx])
-            push!(all_rotations, total_rotation[1])  # X-component
-            push!(all_rotations, total_rotation[2])  # Y-component
-            push!(all_rotations, total_rotation[3])  # Z-component
-        end
-        push!(storage.rotations, all_rotations)
-    end
+"""
+Convert a matrix of shape `n × 3` to a vector of `Vec3{Float64}`.
+
+# Arguments
+- `mat::Matrix{Float64}`: Matrix with 3 columns (x, y, z coordinates).
+
+# Returns
+- `Vector{Vec3{Float64}}`: Each row of the matrix is converted to a `Vec3`.
+"""
+function matrix_to_vec3_array(mat)
+    @assert size(mat, 2) == 3 "Input matrix must have exactly 3 columns."
+
+    return [Vec3(mat[i, 1], mat[i, 2], mat[i, 3]) for i in 1:size(mat, 1)]
 end
 
-# Function to write rotation data to CSV file (Excel-compatible)
-function write_rotation_data(storage::RotationStorage, output_file::String="rotation_data.csv")
-    n_timesteps = length(storage.times)
-    n_nodes = storage.n_nodes
-    
-    if n_timesteps == 0
-        return
-    end
-    
-    # Create data matrix: 1 time column + 3*n_nodes rotation columns
-    data = zeros(n_timesteps, 1 + 3 * n_nodes)
-    
-    for i in 1:n_timesteps
-        data[i, 1] = storage.times[i]
-        for j in 1:(3 * n_nodes)
-            data[i, 1 + j] = storage.rotations[i][j]
-        end
-    end
-    
-    # Write to CSV file with headers
-    open(output_file, "w") do io
-        header = "Time"
-        for node in 1:n_nodes
-            header *= ",RotX$node,RotY$node,RotZ$node"
-        end
-        println(io, header)
-        # Write data
-        writedlm(io, data, ',')
-    end
+"""
+Convert a matrix of shape `n × 2` to a vector of `Vec2{Int}`.
+
+# Arguments
+- `mat::Matrix{Int}`: Matrix with 2 columns.
+
+# Returns
+- `Vector{Vec2{Int}}`: Each row of the matrix is converted to a `Vec2`.
+"""
+function matrix_to_vec2_array(mat)
+    @assert size(mat, 2) == 2 "Input matrix must have exactly 2 columns."
+
+    return [Vec2(mat[i, 1], mat[i, 2]) for i in 1:size(mat, 1)]
 end
 
-# ------------------------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------------------------
-# DISPLACEMENT DATA STORAGE AND WRITING
-# ------------------------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------------------------
+"""
+Convert a matrix of shape `n × 9` to a vector of `Mat33{Float64}` matrices.
 
-# Structure to store displacement data during simulation for all nodes
-mutable struct DisplacementStorage
-    times::Vector{Float64}
-    displacements::Vector{Vector{Float64}}  # Each entry contains [ux_node1, uy_node1, uz_node1, ux_node2, uy_node2, uz_node2, ...]
-    n_nodes::Int  # Number of nodes (set on first accumulation)
-    
-    function DisplacementStorage()
-        new(Float64[], Vector{Float64}[], 0)
+# Arguments
+- `mat::Matrix{Float64}`: Matrix with 9 columns representing 3×3 matrices row-wise.
+
+# Returns
+- `Vector{Mat33{Float64}}`: Each row of the matrix converted to a `Mat33`.
+"""
+function matrix_to_mat33_array(mat::Matrix{Float64})
+    @assert size(mat, 2) == 9 "Input matrix must have exactly 9 columns."
+
+    vec = Vector{Mat33{Float64}}(undef, size(mat, 1))
+
+    for i in 1:size(mat, 1)
+        # # reshape row vector into 3x3 matrix in column-major order
+        # # note: Julia is column-major, so transpose if needed
+        # # here, we assume row-major in input, so reshape and transpose
+        # row = mat[i, :]
+        # mat33 = reshape(row, 3, 3)'  # transpose to get proper orientation
+        vec[i] = Mat33(mat[i, :])
     end
+
+    return vec
 end
 
-# Function to accumulate displacement data when simulation converges
-# Stores displacement (X, Y, Z) for all nodes
-function accumulate_displacement_data!(storage::DisplacementStorage, conf::BeamsConfiguration, t::Float64)
-    n_nodes = length(conf.nodes)
-    if n_nodes >= 1
-        # Set number of nodes on first call
-        if storage.n_nodes == 0
-            storage.n_nodes = n_nodes
-        end
-        
-        push!(storage.times, t)
-        
-        all_displacements = Float64[]
-        for node_idx in 1:n_nodes
-            # Extract displacement from node
-            u = conf.nodes.u[node_idx]
-            push!(all_displacements, u[1])  # X-component
-            push!(all_displacements, u[2])  # Y-component
-            push!(all_displacements, u[3])  # Z-component
-        end
-        push!(storage.displacements, all_displacements)
-    end
-end
 
-# Function to write displacement data to CSV file (Excel-compatible)
-function write_displacement_data(storage::DisplacementStorage, output_file::String="displacement_data.csv")
-    n_timesteps = length(storage.times)
-    n_nodes = storage.n_nodes
-    
-    if n_timesteps == 0
-        return
-    end
-    
-    # Create data matrix: 1 time column + 3*n_nodes displacement columns
-    data = zeros(n_timesteps, 1 + 3 * n_nodes)
-    
-    for i in 1:n_timesteps
-        data[i, 1] = storage.times[i]
-        for j in 1:(3 * n_nodes)
-            data[i, 1 + j] = storage.displacements[i][j]
-        end
-    end
-    
-    # Write to CSV file with headers
-    open(output_file, "w") do io
-        header = "Time"
-        for node in 1:n_nodes
-            header *= ",DispX$node,DispY$node,DispZ$node"
-        end
-        println(io, header)
-        # Write data
-        writedlm(io, data, ',')
-    end
-end
+# -------------------------------------------------------------------------------------------
+# Write
+# -------------------------------------------------------------------------------------------
+"""
+Write node and beam solution data (`u`, `R`, `Re0`, and non-linear material states) to text files.
 
-# Structure to store stress and strain VM data during simulation for all Gauss points
-mutable struct StressStrainStorage
-    times::Vector{Float64}
-    stress_VM_values::Vector{Vector{Float64}}  # Each entry is a vector of n_gauss_points values
-    strain_VM_values::Vector{Vector{Float64}}  # Each entry is a vector of n_gauss_points values
-    
-    function StressStrainStorage()
-        new(Float64[], Vector{Float64}[], Vector{Float64}[])
-    end
-end
+Arguments:
+- `nodes`: Object containing displacement `u` and rotation matrices `R` (per node).
+- `beams`: Object containing reference element rotations `Rₑ⁰` (per beam).
+- `num_nodes`: Number of nodes.
+- `num_beams`: Number of beams.
+- `output_dir`: Directory where files will be written.
+- `CLEAN_FOLDER`: If true, clears existing `.vtk`, `.vtu`, `.txt` files in the folder.
 
-# Function to accumulate stress and strain VM data when simulation converges
-# Stores stress_VM and strain_VM for all Gauss points
-function accumulate_stress_strain_data!(storage::StressStrainStorage, state::SimulationState, t::Float64, stress_VM::Vector{Float64}, strain_VM::Vector{Float64})
-    push!(storage.times, t)
-    push!(storage.stress_VM_values, copy(stress_VM))
-    push!(storage.strain_VM_values, copy(strain_VM))
-end
-
-# Function to write stress and strain VM data to CSV file (Excel-compatible)
-# Format: Time, stress_GP1, strain_GP1, stress_GP2, strain_GP2, ..., stress_GPn, strain_GPn
-function write_stress_strain_data(storage::StressStrainStorage, output_file::String="stress_strain_data.csv")
-    n_timesteps = length(storage.times)
+# Keyword arguments
+- `material_states`: If not `nothing`, superelastic beams append one row of `xi_S` (martensite fraction
+  per Gauss section) to `xi_S.txt`. Values are taken from `superelasticⁿ`, i.e. the state after
+  `update_converged!` for the last completed time step (not the trial `superelasticⁿ⁺¹` during iteration).
+"""
+function export_stent_solution_to_txt(nodes, beams, num_nodes, num_beams, output_dir::String, flag_clean_folder::Bool=true;
+    material_states::Union{Nothing, BeamMaterialStates}=nothing)
     
-    # Check if there's any data to write
-    if n_timesteps == 0 || isempty(storage.stress_VM_values)
-        @warn "No stress-strain data to write. Skipping stress_strain_data.csv output."
-        return
+    # Clean existing output files if requested
+    if flag_clean_folder && output_dir != ""
+        savedir = pwd()
+        cd(output_dir)
+        for ext in [".vtk", ".vtu", ".txt"]
+            for file in filter(f -> endswith(f, ext), readdir())
+                rm(file, force=true)
+            end
+        end
+        cd(savedir)
     end
-    
-    n_gauss_points = length(storage.stress_VM_values[1])  # Get number of Gauss points from first entry
-    
-    # Create data matrix: 1 time column + n_gauss_points*2 stress/strain columns
-    data = zeros(n_timesteps, 1 + 2 * n_gauss_points)
-    
-    for i in 1:n_timesteps
-        data[i, 1] = storage.times[i]
-        for gp in 1:n_gauss_points
-            data[i, 2 + 2*(gp-1)] = storage.stress_VM_values[i][gp]      # stress column
-            data[i, 3 + 2*(gp-1)] = storage.strain_VM_values[i][gp]      # strain column
+
+    # Ensure directory path ends without double slash
+    if !endswith(output_dir, "/")
+        output_dir *= "/"
+    end
+
+    # Write node displacements and rotations
+    for i in 1:num_nodes
+        # Write displacement vector u (3 values)
+        open(output_dir * "u.txt", "a") do io
+            writedlm(io, [nodes.u[i]'])  # Transpose to row
+        end
+
+        # Write rotation matrix R (flattened 3x3)
+        R = nodes.R[i]
+        open(output_dir * "R.txt", "a") do io
+            writedlm(io, [vec(R)'])  # Flatten and transpose to row
         end
     end
-    
-    # Write to CSV file with headers
-    open(output_file, "w") do io
-        # Build header: Time, stress_GP1, strain_GP1, stress_GP2, strain_GP2, ...
-        header = "Time"
-        for gp in 1:n_gauss_points
-            header *= ",stress_GP$gp,strain_GP$gp"
+
+    # Write beam reference rotations
+    for i in 1:num_beams
+        Re0 = beams.Rₑ⁰[i]
+        open(output_dir * "Re0.txt", "a") do io
+            writedlm(io, [vec(Re0)'])  # Flatten 3x3 matrix to row
         end
-        println(io, header)
-        # Write data
-        writedlm(io, data, ',')
+    end
+
+    # Write data from plastic beams
+    if any(beams.material[i] == :plastic for i in 1:num_beams)
+        pl_sigma_cols      = Vector{Float64}[]
+        pl_epsilon_cols    = Vector{Float64}[]
+        pl_epsilon_pl_cols = Vector{Float64}[]
+        pl_e_pl_cols       = Vector{Float64}[]
+        pl_F_cols          = Vector{Float64}[]
+        pl_beam_indices    = Int[]
+        for i in 1:num_beams
+            if beams.material[i] == :plastic
+                pl_state = material_states.by_beam[beams.ind[i]]::PlasticStates
+                push!(pl_sigma_cols,      vec(pl_state.Plasticⁿ.sigma))
+                push!(pl_epsilon_cols,    vec(pl_state.Plasticⁿ.epsilon))
+                push!(pl_epsilon_pl_cols, vec(pl_state.Plasticⁿ.epsilon_pl))
+                push!(pl_e_pl_cols,       pl_state.Plasticⁿ.e_pl)
+                push!(pl_F_cols,          pl_state.Plasticⁿ.F)
+                push!(pl_beam_indices, beams.ind[i])
+            end
+        end
+        open(output_dir * "pl_sigma.txt", "w") do io
+            writedlm(io, pl_beam_indices')            # first row: beam indices
+            writedlm(io, hcat(pl_sigma_cols...))      # (3*nG*nS) × num_plastic_beams
+        end
+        open(output_dir * "pl_epsilon.txt", "w") do io
+            writedlm(io, pl_beam_indices')            # first row: beam indices
+            writedlm(io, hcat(pl_epsilon_cols...))    # (3*nG*nS) × num_plastic_beams
+        end
+        open(output_dir * "pl_epsilon_pl.txt", "w") do io
+            writedlm(io, pl_beam_indices')             # first row: beam indices
+            writedlm(io, hcat(pl_epsilon_pl_cols...))  # (3*nG*nS) × num_plastic_beams
+        end
+        open(output_dir * "pl_e_pl.txt", "w") do io
+            writedlm(io, pl_beam_indices')           # first row: beam indices
+            writedlm(io, hcat(pl_e_pl_cols...))      # (nG*nS) × num_plastic_beams
+        end
+        open(output_dir * "pl_F.txt", "w") do io
+            writedlm(io, pl_beam_indices')        # first row: beam indices
+            writedlm(io, hcat(pl_F_cols...))      # (nG*nS) × num_plastic_beams
+        end
+    end
+
+    # Write data from DFT_EP beams
+    if any(beams.material[i] == :DFT_EP for i in 1:num_beams)
+        ep_sigma_cols      = Vector{Float64}[]
+        ep_epsilon_cols    = Vector{Float64}[]
+        ep_epsilon_pl_cols = Vector{Float64}[]
+        ep_e_pl_cols       = Vector{Float64}[]
+        ep_F_cols          = Vector{Float64}[]
+        ep_beam_indices    = Int[]
+        for i in 1:num_beams
+            if beams.material[i] == :DFT_EP
+                st = material_states.by_beam[beams.ind[i]]::DFT_EP_States
+                push!(ep_sigma_cols,      vec(st.Plasticⁿ.sigma))
+                push!(ep_epsilon_cols,    vec(st.Plasticⁿ.epsilon))
+                push!(ep_epsilon_pl_cols, vec(st.Plasticⁿ.epsilon_pl))
+                push!(ep_e_pl_cols,       st.Plasticⁿ.e_pl)
+                push!(ep_F_cols,          st.Plasticⁿ.F)
+                push!(ep_beam_indices, beams.ind[i])
+            end
+        end
+        open(output_dir * "ep_sigma.txt", "w") do io
+            writedlm(io, ep_beam_indices')
+            writedlm(io, hcat(ep_sigma_cols...))      # (3*nG*nS) × num_DFT_EP_beams
+        end
+        open(output_dir * "ep_epsilon.txt", "w") do io
+            writedlm(io, ep_beam_indices')
+            writedlm(io, hcat(ep_epsilon_cols...))    # (3*nG*nS) × num_DFT_EP_beams
+        end
+        open(output_dir * "ep_epsilon_pl.txt", "w") do io
+            writedlm(io, ep_beam_indices')
+            writedlm(io, hcat(ep_epsilon_pl_cols...)) # (3*nG*nS) × num_DFT_EP_beams
+        end
+        open(output_dir * "ep_e_pl.txt", "w") do io
+            writedlm(io, ep_beam_indices')
+            writedlm(io, hcat(ep_e_pl_cols...))       # (nG*nS) × num_DFT_EP_beams
+        end
+        open(output_dir * "ep_F.txt", "w") do io
+            writedlm(io, ep_beam_indices')
+            writedlm(io, hcat(ep_F_cols...))          # (nG*nS) × num_DFT_EP_beams
+        end
+    end
+
+    # Write data from DFT_PE beams
+    if any(beams.material[i] == :DFT_PE for i in 1:num_beams)
+        pe_sigma_cols      = Vector{Float64}[]
+        pe_epsilon_cols    = Vector{Float64}[]
+        pe_epsilon_pl_cols = Vector{Float64}[]
+        pe_e_pl_cols       = Vector{Float64}[]
+        pe_F_cols          = Vector{Float64}[]
+        pe_beam_indices    = Int[]
+        for i in 1:num_beams
+            if beams.material[i] == :DFT_PE
+                st = material_states.by_beam[beams.ind[i]]::DFT_PE_States
+                push!(pe_sigma_cols,      vec(st.Plasticⁿ.sigma))
+                push!(pe_epsilon_cols,    vec(st.Plasticⁿ.epsilon))
+                push!(pe_epsilon_pl_cols, vec(st.Plasticⁿ.epsilon_pl))
+                push!(pe_e_pl_cols,       st.Plasticⁿ.e_pl)
+                push!(pe_F_cols,          st.Plasticⁿ.F)
+                push!(pe_beam_indices, beams.ind[i])
+            end
+        end
+        open(output_dir * "pe_sigma.txt", "w") do io
+            writedlm(io, pe_beam_indices')
+            writedlm(io, hcat(pe_sigma_cols...))      # (3*nG*nS) × num_DFT_PE_beams
+        end
+        open(output_dir * "pe_epsilon.txt", "w") do io
+            writedlm(io, pe_beam_indices')
+            writedlm(io, hcat(pe_epsilon_cols...))    # (3*nG*nS) × num_DFT_PE_beams
+        end
+        open(output_dir * "pe_epsilon_pl.txt", "w") do io
+            writedlm(io, pe_beam_indices')
+            writedlm(io, hcat(pe_epsilon_pl_cols...)) # (3*nG*nS) × num_DFT_PE_beams
+        end
+        open(output_dir * "pe_e_pl.txt", "w") do io
+            writedlm(io, pe_beam_indices')
+            writedlm(io, hcat(pe_e_pl_cols...))       # (nG*nS) × num_DFT_PE_beams
+        end
+        open(output_dir * "pe_F.txt", "w") do io
+            writedlm(io, pe_beam_indices')
+            writedlm(io, hcat(pe_F_cols...))          # (nG*nS) × num_DFT_PE_beams
+        end
+    end
+
+    # Write data from DFT_SEP beams
+    if any(beams.material[i] == :DFT_SEP for i in 1:num_beams)
+        sep_se_xi_S_cols      = Vector{Float64}[]
+        sep_se_F_cols         = Vector{Float64}[]
+        sep_se_eps_cols       = Vector{Float64}[]
+        sep_se_sigma_cols     = Vector{Float64}[]
+        sep_pl_sigma_cols     = Vector{Float64}[]
+        sep_pl_epsilon_cols   = Vector{Float64}[]
+        sep_pl_epsilon_pl_cols= Vector{Float64}[]
+        sep_pl_e_pl_cols      = Vector{Float64}[]
+        sep_pl_F_cols         = Vector{Float64}[]
+        sep_beam_indices      = Int[]
+        for i in 1:num_beams
+            if beams.material[i] == :DFT_SEP
+                st = material_states.by_beam[beams.ind[i]]::DFT_SEP_States
+                push!(sep_se_xi_S_cols,       st.superelasticⁿ.xi_S)
+                push!(sep_se_F_cols,          st.superelasticⁿ.F)
+                push!(sep_se_eps_cols,        vec(st.superelasticⁿ.eps))
+                push!(sep_se_sigma_cols,      vec(st.superelasticⁿ.sigma))
+                push!(sep_pl_sigma_cols,      vec(st.Plasticⁿ.sigma))
+                push!(sep_pl_epsilon_cols,    vec(st.Plasticⁿ.epsilon))
+                push!(sep_pl_epsilon_pl_cols, vec(st.Plasticⁿ.epsilon_pl))
+                push!(sep_pl_e_pl_cols,       st.Plasticⁿ.e_pl)
+                push!(sep_pl_F_cols,          st.Plasticⁿ.F)
+                push!(sep_beam_indices, beams.ind[i])
+            end
+        end
+        open(output_dir * "sep_se_xi_S.txt", "w") do io
+            writedlm(io, sep_beam_indices')           # first row: beam indices
+            writedlm(io, hcat(sep_se_xi_S_cols...))  # (nG*nS) × num_DFT_SEP_beams
+        end
+        open(output_dir * "sep_se_F.txt", "w") do io
+            writedlm(io, sep_beam_indices')
+            writedlm(io, hcat(sep_se_F_cols...))     # (nG*nS) × num_DFT_SEP_beams
+        end
+        open(output_dir * "sep_se_eps.txt", "w") do io
+            writedlm(io, sep_beam_indices')
+            writedlm(io, hcat(sep_se_eps_cols...))   # (3*nG*nS) × num_DFT_SEP_beams
+        end
+        open(output_dir * "sep_se_sigma.txt", "w") do io
+            writedlm(io, sep_beam_indices')
+            writedlm(io, hcat(sep_se_sigma_cols...)) # (3*nG*nS) × num_DFT_SEP_beams
+        end
+        open(output_dir * "sep_pl_sigma.txt", "w") do io
+            writedlm(io, sep_beam_indices')
+            writedlm(io, hcat(sep_pl_sigma_cols...)) # (3*nG*nS) × num_DFT_SEP_beams
+        end
+        open(output_dir * "sep_pl_epsilon.txt", "w") do io
+            writedlm(io, sep_beam_indices')
+            writedlm(io, hcat(sep_pl_epsilon_cols...)) # (3*nG*nS) × num_DFT_SEP_beams
+        end
+        open(output_dir * "sep_pl_epsilon_pl.txt", "w") do io
+            writedlm(io, sep_beam_indices')
+            writedlm(io, hcat(sep_pl_epsilon_pl_cols...)) # (3*nG*nS) × num_DFT_SEP_beams
+        end
+        open(output_dir * "sep_pl_e_pl.txt", "w") do io
+            writedlm(io, sep_beam_indices')
+            writedlm(io, hcat(sep_pl_e_pl_cols...))  # (nG*nS) × num_DFT_SEP_beams
+        end
+        open(output_dir * "sep_pl_F.txt", "w") do io
+            writedlm(io, sep_beam_indices')
+            writedlm(io, hcat(sep_pl_F_cols...))     # (nG*nS) × num_DFT_SEP_beams
+        end
+    end
+
+    # Write data from DFT_PSE beams
+    if any(beams.material[i] == :DFT_PSE for i in 1:num_beams)
+        pse_se_xi_S_cols      = Vector{Float64}[]
+        pse_se_F_cols         = Vector{Float64}[]
+        pse_se_eps_cols       = Vector{Float64}[]
+        pse_se_sigma_cols     = Vector{Float64}[]
+        pse_pl_sigma_cols     = Vector{Float64}[]
+        pse_pl_epsilon_cols   = Vector{Float64}[]
+        pse_pl_epsilon_pl_cols= Vector{Float64}[]
+        pse_pl_e_pl_cols      = Vector{Float64}[]
+        pse_pl_F_cols         = Vector{Float64}[]
+        pse_beam_indices      = Int[]
+        for i in 1:num_beams
+            if beams.material[i] == :DFT_PSE
+                st = material_states.by_beam[beams.ind[i]]::DFT_PSE_States
+                push!(pse_se_xi_S_cols,       st.superelasticⁿ.xi_S)
+                push!(pse_se_F_cols,          st.superelasticⁿ.F)
+                push!(pse_se_eps_cols,        vec(st.superelasticⁿ.eps))
+                push!(pse_se_sigma_cols,      vec(st.superelasticⁿ.sigma))
+                push!(pse_pl_sigma_cols,      vec(st.Plasticⁿ.sigma))
+                push!(pse_pl_epsilon_cols,    vec(st.Plasticⁿ.epsilon))
+                push!(pse_pl_epsilon_pl_cols, vec(st.Plasticⁿ.epsilon_pl))
+                push!(pse_pl_e_pl_cols,       st.Plasticⁿ.e_pl)
+                push!(pse_pl_F_cols,          st.Plasticⁿ.F)
+                push!(pse_beam_indices, beams.ind[i])
+            end
+        end
+        open(output_dir * "pse_se_xi_S.txt", "w") do io
+            writedlm(io, pse_beam_indices')
+            writedlm(io, hcat(pse_se_xi_S_cols...))  # (nG*nS) × num_DFT_PSE_beams
+        end
+        open(output_dir * "pse_se_F.txt", "w") do io
+            writedlm(io, pse_beam_indices')
+            writedlm(io, hcat(pse_se_F_cols...))     # (nG*nS) × num_DFT_PSE_beams
+        end
+        open(output_dir * "pse_se_eps.txt", "w") do io
+            writedlm(io, pse_beam_indices')
+            writedlm(io, hcat(pse_se_eps_cols...))   # (3*nG*nS) × num_DFT_PSE_beams
+        end
+        open(output_dir * "pse_se_sigma.txt", "w") do io
+            writedlm(io, pse_beam_indices')
+            writedlm(io, hcat(pse_se_sigma_cols...)) # (3*nG*nS) × num_DFT_PSE_beams
+        end
+        open(output_dir * "pse_pl_sigma.txt", "w") do io
+            writedlm(io, pse_beam_indices')
+            writedlm(io, hcat(pse_pl_sigma_cols...)) # (3*nG*nS) × num_DFT_PSE_beams
+        end
+        open(output_dir * "pse_pl_epsilon.txt", "w") do io
+            writedlm(io, pse_beam_indices')
+            writedlm(io, hcat(pse_pl_epsilon_cols...)) # (3*nG*nS) × num_DFT_PSE_beams
+        end
+        open(output_dir * "pse_pl_epsilon_pl.txt", "w") do io
+            writedlm(io, pse_beam_indices')
+            writedlm(io, hcat(pse_pl_epsilon_pl_cols...)) # (3*nG*nS) × num_DFT_PSE_beams
+        end
+        open(output_dir * "pse_pl_e_pl.txt", "w") do io
+            writedlm(io, pse_beam_indices')
+            writedlm(io, hcat(pse_pl_e_pl_cols...))  # (nG*nS) × num_DFT_PSE_beams
+        end
+        open(output_dir * "pse_pl_F.txt", "w") do io
+            writedlm(io, pse_beam_indices')
+            writedlm(io, hcat(pse_pl_F_cols...))     # (nG*nS) × num_DFT_PSE_beams
+        end
+    end
+
+    # Write data from DFT_PP beams
+    if any(beams.material[i] == :DFT_PP for i in 1:num_beams)
+        pp_outer_sigma_cols     = Vector{Float64}[]
+        pp_outer_epsilon_cols   = Vector{Float64}[]
+        pp_outer_epsilon_pl_cols= Vector{Float64}[]
+        pp_outer_e_pl_cols      = Vector{Float64}[]
+        pp_outer_F_cols         = Vector{Float64}[]
+        pp_inner_sigma_cols     = Vector{Float64}[]
+        pp_inner_epsilon_cols   = Vector{Float64}[]
+        pp_inner_epsilon_pl_cols= Vector{Float64}[]
+        pp_inner_e_pl_cols      = Vector{Float64}[]
+        pp_inner_F_cols         = Vector{Float64}[]
+        pp_beam_indices         = Int[]
+        for i in 1:num_beams
+            if beams.material[i] == :DFT_PP
+                st = material_states.by_beam[beams.ind[i]]::DFT_PP_States
+                push!(pp_outer_sigma_cols,      vec(st.Plasticⁿ_outer.sigma))
+                push!(pp_outer_epsilon_cols,    vec(st.Plasticⁿ_outer.epsilon))
+                push!(pp_outer_epsilon_pl_cols, vec(st.Plasticⁿ_outer.epsilon_pl))
+                push!(pp_outer_e_pl_cols,       st.Plasticⁿ_outer.e_pl)
+                push!(pp_outer_F_cols,          st.Plasticⁿ_outer.F)
+                push!(pp_inner_sigma_cols,      vec(st.Plasticⁿ_inner.sigma))
+                push!(pp_inner_epsilon_cols,    vec(st.Plasticⁿ_inner.epsilon))
+                push!(pp_inner_epsilon_pl_cols, vec(st.Plasticⁿ_inner.epsilon_pl))
+                push!(pp_inner_e_pl_cols,       st.Plasticⁿ_inner.e_pl)
+                push!(pp_inner_F_cols,          st.Plasticⁿ_inner.F)
+                push!(pp_beam_indices, beams.ind[i])
+            end
+        end
+        open(output_dir * "pp_outer_sigma.txt", "w") do io
+            writedlm(io, pp_beam_indices')
+            writedlm(io, hcat(pp_outer_sigma_cols...))      # (3*nG*nS) × num_DFT_PP_beams
+        end
+        open(output_dir * "pp_outer_epsilon.txt", "w") do io
+            writedlm(io, pp_beam_indices')
+            writedlm(io, hcat(pp_outer_epsilon_cols...))    # (3*nG*nS) × num_DFT_PP_beams
+        end
+        open(output_dir * "pp_outer_epsilon_pl.txt", "w") do io
+            writedlm(io, pp_beam_indices')
+            writedlm(io, hcat(pp_outer_epsilon_pl_cols...)) # (3*nG*nS) × num_DFT_PP_beams
+        end
+        open(output_dir * "pp_outer_e_pl.txt", "w") do io
+            writedlm(io, pp_beam_indices')
+            writedlm(io, hcat(pp_outer_e_pl_cols...))       # (nG*nS) × num_DFT_PP_beams
+        end
+        open(output_dir * "pp_outer_F.txt", "w") do io
+            writedlm(io, pp_beam_indices')
+            writedlm(io, hcat(pp_outer_F_cols...))          # (nG*nS) × num_DFT_PP_beams
+        end
+        open(output_dir * "pp_inner_sigma.txt", "w") do io
+            writedlm(io, pp_beam_indices')
+            writedlm(io, hcat(pp_inner_sigma_cols...))      # (3*nG*nS) × num_DFT_PP_beams
+        end
+        open(output_dir * "pp_inner_epsilon.txt", "w") do io
+            writedlm(io, pp_beam_indices')
+            writedlm(io, hcat(pp_inner_epsilon_cols...))    # (3*nG*nS) × num_DFT_PP_beams
+        end
+        open(output_dir * "pp_inner_epsilon_pl.txt", "w") do io
+            writedlm(io, pp_beam_indices')
+            writedlm(io, hcat(pp_inner_epsilon_pl_cols...)) # (3*nG*nS) × num_DFT_PP_beams
+        end
+        open(output_dir * "pp_inner_e_pl.txt", "w") do io
+            writedlm(io, pp_beam_indices')
+            writedlm(io, hcat(pp_inner_e_pl_cols...))       # (nG*nS) × num_DFT_PP_beams
+        end
+        open(output_dir * "pp_inner_F.txt", "w") do io
+            writedlm(io, pp_beam_indices')
+            writedlm(io, hcat(pp_inner_F_cols...))          # (nG*nS) × num_DFT_PP_beams
+        end
+    end
+
+    # Write data from superelastic beams
+    if any(beams.material[i] == :superelastic for i in 1:num_beams)
+        xi_S_cols   = Vector{Float64}[]
+        F_cols      = Vector{Float64}[]
+        eps_cols    = Vector{Float64}[]
+        sigma_cols  = Vector{Float64}[]
+        beam_indices = Int[]
+        for i in 1:num_beams
+            if beams.material[i] == :superelastic
+                se_state = material_states.by_beam[beams.ind[i]]::SuperelasticStates
+                push!(xi_S_cols,  se_state.superelasticⁿ.xi_S)
+                push!(F_cols,     se_state.superelasticⁿ.F)
+                push!(eps_cols,   vec(se_state.superelasticⁿ.eps))
+                push!(sigma_cols, vec(se_state.superelasticⁿ.sigma))
+                push!(beam_indices, beams.ind[i])
+            end
+        end
+        open(output_dir * "se_xi_S.txt", "w") do io
+            writedlm(io, beam_indices')        # first row: beam indices
+            writedlm(io, hcat(xi_S_cols...))  # (nG*nS) × num_superelastic_beams
+        end
+        open(output_dir * "se_F.txt", "w") do io
+            writedlm(io, beam_indices')       # first row: beam indices
+            writedlm(io, hcat(F_cols...))     # (nG*nS) × num_superelastic_beams
+        end
+        open(output_dir * "se_eps.txt", "w") do io
+            writedlm(io, beam_indices')       # first row: beam indices
+            writedlm(io, hcat(eps_cols...))   # (3*nG*nS) × num_superelastic_beams
+        end
+        open(output_dir * "se_sigma.txt", "w") do io
+            writedlm(io, beam_indices')         # first row: beam indices
+            writedlm(io, hcat(sigma_cols...))   # (3*nG*nS) × num_superelastic_beams
+        end
     end
 end
 

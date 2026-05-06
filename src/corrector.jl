@@ -54,6 +54,13 @@ function corrector!(conf::SimulationConfiguration, state::SimulationState, param
         
         # Solve for displacement increments at the free dofs
         @timeit_debug "Solve Free DOFs" solve_free_dofs!(conf, state, solver)
+
+        # Check if the solution contains NaN values (numerical issues)
+        if any(isnan, state.solⁿ⁺¹.ΔD)
+            params.verbose && printstyled("  Solution contains NaN values, system not converged. Reducing time step...\n"; color = :yellow)
+            release!(solver)
+            return max_iterations + 1  # Signal non-convergence
+        end
         
         # Update global displacement, velocity, and acceleration variables after solving
         @timeit_debug "Compute Global Corrector" compute_global_corrector!(state, Δt, β, γ)

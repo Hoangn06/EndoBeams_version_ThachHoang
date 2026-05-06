@@ -27,7 +27,7 @@ using Plots
 
 
 # Define node positions and connectivity for beams
-num_elements = 600
+num_elements = 30
 nnodes = num_elements + 1    # Total number of nodes
 beam_length = 20            # Total length of the beam
 positions = zeros(nnodes, 3)  # Initialize position matrix
@@ -58,11 +58,11 @@ E = 60000                         # Young's modulus (MPa)
 radius = 0.745                         # Beam radius (mm)
 damping = 0.0                          # Damping coefficient
 εL = 0.075/sqrt(2/3)                          # Max transformation strain
-sigma_S_AS = 520                    # Start stress for A→S (MPa)
+sigma_S_AS = 500                    # Start stress for A→S (MPa)
 sigma_F_AS = 600                    # Finish stress for A→S (MPa)
 sigma_S_SA = 300                    # Start stress for S→A (MPa)
 sigma_F_SA = 200                    # Finish stress for S→A (MPa)
-sigma_c_SAS = 520                     # Critical stress for SAS transformation (MPa)
+sigma_c_SAS = 500                     # Critical stress for SAS transformation (MPa)
 Eᴹ = 60000                         # Martensite Young's modulus (MPa)
 
 # Build nodes and beams
@@ -83,16 +83,16 @@ beams = SuperElasticBeams(nodes, connectivity, E, ν, ρ, εL, sigma_S_AS, sigma
 
 # External force: global DOF index = (node_index - 1) * 6 + component (1–3 = ux,uy,uz; 4–6 = rotations)
 # Beam along +Y → apply force in Y at the tip node (uy DOF).
-loaded_dofs = [(201-1)*6 + 1, (401-1)*6 + 1]  # Node 201 and node 401: X displacement at L/3 and 2L/3
-force_function(t, i) = t <= 10.0 ? 55.0 * t / 10.0 : 55.0 * (20.0 - t) / 10.0   # 0→5N (t=0 to 10), 5→0N (t=10 to 20)
+loaded_dofs = [61, 121]   # Node 16: X displacement (DOF 61)
+force_function(t, i) = t <= 30.0 ? 50.0 * t / 30.0 : 50.0 * (60.0 - t) / 30.0   # 0→50N (t=0→30), 50→0N (t=30→60)
 concentrated_force = ConcentratedForce(force_function, loaded_dofs)  
 
 # Degrees of freedom (DOFs) definition
 ndofs = nnodes * 6                     # Total number of DOFs (6 per node for displacement and rotation)
-blocked_dofs = [1,                    # Node 1: ux fixed
-                3,                    # Node 1: uz fixed (out-of-plane)
-                (nnodes-1)*6+1,       # Last node: ux fixed
-                (nnodes-1)*6+3]       # Last node: uz fixed (out-of-plane)
+blocked_dofs = [1,              # Node 1: ux fixed
+                3,              # Node 1: uz fixed
+                (nnodes-1)*6+1, # Last node: ux fixed
+                (nnodes-1)*6+3] # Last node: uz fixed
 encastre = Encastre(blocked_dofs)
 
 # Beam configuration struct initialization
@@ -109,19 +109,19 @@ conf = BeamsConfiguration(nodes, beams, Loads(concentrated_force), BoundaryCondi
 
 # General time stepping parameters
 initial_timestep = 1e-2  # Initial time step size
-min_timestep = 1e-8    # Minimum allowed time step
+min_timestep = 1e-10    # Minimum allowed time step
 max_timestep = 1e-2   # Maximum allowed time step (could be adjusted based on system behavior)
-output_timestep = 1e-1   # Time step for output plotting or visualization
-simulation_end_time = 10 # End time for the simulation (duration of the analysis)
+output_timestep = 0.5   # Time step for output plotting or visualization
+simulation_end_time = 59.9 # End time for the simulation (loading 0→30s, unloading 30→60s)
 
 # Convergence criteria for the solver
-tolerance_residual = 1e-4   # Residual tolerance for convergence checks
-tolerance_displacement = 1e-4    # Tolerance for changes in displacement (ΔD)
+tolerance_residual = 1e-5   # Residual tolerance for convergence checks
+tolerance_displacement = 1e-5    # Tolerance for changes in displacement (ΔD)
 max_iterations = 20      # Maximum number of iterations for the solver
 
 # Store solver parameters in a structured Params object
 params = SimulationParams(;
-α, β, γ, initial_timestep, min_timestep, max_timestep, output_timestep, simulation_end_time, tolerance_residual, tolerance_displacement, max_iterations, output_dir = "test/output3D"
+α, β, γ, initial_timestep, min_timestep, max_timestep, output_timestep, simulation_end_time, tolerance_residual, tolerance_displacement, max_iterations, output_dir = "validation/output3D"
 , verbose = true)
 
 #----------------------------------------------------
@@ -139,7 +139,7 @@ println("Simulation finished")
 
 # Read displacement data from CSV file
 # Format: Time, DispX1, DispY1, DispZ1, DispX2, DispY2, DispZ2, ...
-csv_file = joinpath("test", "output3D", "displacement_data.csv")
+csv_file = joinpath("validation", "output3D", "displacement_data.csv")
 displacement_data, header = readdlm(csv_file, ',', header=true)
 
 # Column for X displacement of node 16: col = 2 + 3*(16-1) = 47
@@ -149,20 +149,24 @@ times         = Float64.(displacement_data[:, 1])
 displacements = Float64.(displacement_data[:, disp_x_col])
 
 # Reconstruct the applied force at each output time
-forces = [t <= 10.0 ? 50.0 * t / 10.0 : 50.0 * (20.0 - t) / 10.0 for t in times]
+forces = [t <= 30.0 ? 50.0 * t / 30.0 : 50.0 * (60.0 - t) / 30.0 for t in times]
+
+# Print X-displacement of node 16 at t = 30
+idx30 = argmin(abs.(times .- 30.0))
+println("X-displacement of node $tracked_node at t = $(times[idx30]) s : $(displacements[idx30]) mm")
 
 # Force vs X-displacement plot
 p = plot(displacements, forces,
-    xlabel="X Displacement of node $tracked_node (mm)",
+    xlabel="Displacement of mid-span node (mm)",
     ylabel="Force (N)",
-    title="Force vs X-Displacement — node $tracked_node",
+    title="Force vs Displacement — mid-span node",
     linewidth=2,
     grid=true,
     legend=false,
     dpi=300,
 )
 
-plot_file = joinpath("test", "output3D", "force_vs_displacement.png")
+plot_file = joinpath("validation", "output3D", "force_vs_displacement.png")
 savefig(p, plot_file)
 println("Plot saved to: $plot_file")
 display(p)

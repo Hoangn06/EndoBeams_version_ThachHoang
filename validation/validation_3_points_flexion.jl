@@ -27,7 +27,7 @@ using Plots
 
 
 # Define node positions and connectivity for beams
-num_elements = 30
+num_elements = 100
 nnodes = num_elements + 1    # Total number of nodes
 beam_length = 20            # Total length of the beam
 positions = zeros(nnodes, 3)  # Initialize position matrix
@@ -52,18 +52,18 @@ initial_angular_accelerations = zeros(size(positions))  # Zero initial angular a
 plane = "xy"                         # Plane of the problem
 
 # Material and geometric properties for beams
-E = 60000                         # Young's modulus (MPa)
+E = 30000                         # Young's modulus (MPa)
 ν = 0.3                              # Poisson's ratio
 ρ = 6.5e-9                                # Density (tonnes/mm³)
 radius = 0.745                         # Beam radius (mm)
 damping = 0.0                          # Damping coefficient
 εL = 0.075/sqrt(2/3)                          # Max transformation strain
 sigma_S_AS = 500                    # Start stress for A→S (MPa)
-sigma_F_AS = 600                    # Finish stress for A→S (MPa)
+sigma_F_AS = 525                    # Finish stress for A→S (MPa)
 sigma_S_SA = 300                    # Start stress for S→A (MPa)
 sigma_F_SA = 200                    # Finish stress for S→A (MPa)
 sigma_c_SAS = 500                     # Critical stress for SAS transformation (MPa)
-Eᴹ = 60000                         # Martensite Young's modulus (MPa)
+Eᴹ = 10000                         # Martensite Young's modulus (MPa)
 
 # Build nodes and beams
 nodes = NodesBeams(
@@ -81,11 +81,14 @@ beams = SuperElasticBeams(nodes, connectivity, E, ν, ρ, εL, sigma_S_AS, sigma
 # BEAMS CONFIGURATION DEFINITIONS
 #----------------------------------
 
-# External force: global DOF index = (node_index - 1) * 6 + component (1–3 = ux,uy,uz; 4–6 = rotations)
-# Beam along +Y → apply force in Y at the tip node (uy DOF).
-loaded_dofs = [(16-1)*6 + 1]   # Node 16: X displacement (DOF 61)
-force_function(t, i) = t <= 30.0 ? 130.0 * t / 30.0 : 130.0 * (60.0 - t) / 30.0   # 0→130N (t=0→30), 130→0N (t=30→60)
-concentrated_force = ConcentratedForce(force_function, loaded_dofs)  
+# Mid-span node (works for any num_elements)
+mid_node = div(nnodes, 2) + 1
+
+# Force-controlled loading: global X-force at mid-span (DOF = (node - 1) * 6 + 1)
+mid_dof = (mid_node - 1) * 6 + 1
+F_max = 130.0   # Peak force (N)
+force_function(t, i) = t <= 30.0 ? F_max * t / 30.0 : F_max * (60.0 - t) / 30.0   # 0→130 N (t=0→30), 130→0 N (t=30→60)
+concentrated_force = ConcentratedForce(force_function, [mid_dof])
 
 # Degrees of freedom (DOFs) definition
 ndofs = nnodes * 6                     # Total number of DOFs (6 per node for displacement and rotation)
@@ -96,7 +99,7 @@ blocked_dofs = [1,              # Node 1: ux fixed
 encastre = Encastre(blocked_dofs)
 
 # Beam configuration struct initialization
-conf = BeamsConfiguration(nodes, beams, Loads(concentrated_force), BoundaryConditions(encastre, ndofs))  # Store the configuration for beams
+conf = BeamsConfiguration(nodes, beams, Loads(concentrated_force), BoundaryConditions(encastre, ndofs))
 
 #----------------------------------------------------
 # SOLVER DEFINITIONS
@@ -134,7 +137,7 @@ run_simulation!(conf, params)
 println("Simulation finished")
 
 #----------------------------------------------------
-# PLOT FORCE VS X-DISPLACEMENT OF NODE 16
+# PLOTS: MID-SPAN DISPLACEMENT VS TIME, FORCE VS DISPLACEMENT
 #----------------------------------------------------
 
 # Read displacement data from CSV file
@@ -142,30 +145,29 @@ println("Simulation finished")
 csv_file = joinpath("validation", "output3D", "displacement_data.csv")
 displacement_data, header = readdlm(csv_file, ',', header=true)
 
-# Column for X displacement of node 16: col = 2 + 3*(16-1) = 47
-tracked_node = 16
+# Column for X displacement of the mid-span node
+tracked_node = mid_node
 disp_x_col = 2 + 3 * (tracked_node - 1)
 times         = Float64.(displacement_data[:, 1])
 displacements = Float64.(displacement_data[:, disp_x_col])
 
-# Reconstruct the applied force at each output time
-forces = [t <= 30.0 ? 130.0 * t / 30.0 : 130.0 * (60.0 - t) / 30.0 for t in times]
+# Applied mid-span X force at each output time (same law as force_function)
+forces = [t <= 30.0 ? F_max * t / 30.0 : F_max * (60.0 - t) / 30.0 for t in times]
 
-# Force vs X-displacement plot
-p = plot(displacements, forces,
-    xlabel="X Displacement of node $tracked_node (mm)",
+# Force vs mid-span X displacement
+p_fd = plot(displacements, forces,
+    xlabel="X-displacement of mid-span node (mm)",
     ylabel="Force (N)",
-    title="Force vs X-Displacement — node $tracked_node",
+    title="Force vs displacement — mid-span",
     linewidth=2,
     grid=true,
     legend=false,
     dpi=300,
 )
-
-plot_file = joinpath("validation", "output3D", "force_vs_displacement.png")
-savefig(p, plot_file)
-println("Plot saved to: $plot_file")
-display(p)
+plot_file_fd = joinpath("validation", "output3D", "force_vs_displacement.png")
+savefig(p_fd, plot_file_fd)
+println("Plot saved to: $plot_file_fd")
+display(p_fd)
 
 
 

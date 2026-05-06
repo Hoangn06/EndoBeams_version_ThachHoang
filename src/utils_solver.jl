@@ -123,6 +123,7 @@ end
 # Computes the norms of the residual and displacement increment
 # during the corrector loop for convergence checking.
 # ---------------------------------------------------------------
+
 function compute_norms_corrector(conf::SimulationConfiguration, state::SimulationState)
     
     # Extract the sets of free and fixed DOFs
@@ -134,12 +135,12 @@ function compute_norms_corrector(conf::SimulationConfiguration, state::Simulatio
     
     # Compute the residual norm for free DOFs
     res_norm = norm(state.solⁿ⁺¹.r_free)
-    
+
     # Compute the total external force norm for free DOFs
-    f_norm = norm(state.forcesⁿ⁺¹.fᵉˣᵗ[free_dofs] .+ state.forcesⁿ⁺¹.Tᶜ[free_dofs] .+ state.forcesⁿ⁺¹.Tᵏ[free_dofs])
+    f_norm = norm(state.forcesⁿ⁺¹.Tᶜ[free_dofs] .+ state.forcesⁿ⁺¹.Tᵏ[free_dofs] .+ state.forcesⁿ⁺¹.Tⁱⁿᵗ[free_dofs])
     
     # Compute the total reaction force norm for fixed DOFs
-    e_norm = norm(state.forcesⁿ⁺¹.fᵉˣᵗ[fixed_dofs] .+ state.forcesⁿ⁺¹.Tᶜ[fixed_dofs] .+ state.forcesⁿ⁺¹.Tᵏ[fixed_dofs])
+    e_norm = norm(state.forcesⁿ⁺¹.Tᶜ[fixed_dofs] .+ state.forcesⁿ⁺¹.Tᵏ[fixed_dofs] .+ state.forcesⁿ⁺¹.Tⁱⁿᵗ[fixed_dofs])
     
     # Normalize the residual norm for better convergence checks
     if f_norm + e_norm > 1e-12    
@@ -304,6 +305,7 @@ function update_converged!(conf::BeamsConfiguration, state::SimulationState;
     rotation_storage=nothing,
     displacement_storage=nothing,
     stress_strain_storage=nothing,
+    internal_force_moment_storage=nothing,
 )
     @inbounds for i in eachindex(conf.nodes)
         # Update nodal displacements, velocities, and accelerations to the converged values
@@ -325,6 +327,11 @@ function update_converged!(conf::BeamsConfiguration, state::SimulationState;
     # Accumulate displacement data if storage is provided
     if displacement_storage !== nothing
         accumulate_displacement_data!(displacement_storage, conf, t)
+    end
+
+    # Accumulate internal force and moment data if storage is provided
+    if internal_force_moment_storage !== nothing
+        accumulate_internal_force_moment_data!(internal_force_moment_storage, conf, state, t)
     end
     
     # Update the force vectors for the current time step

@@ -58,6 +58,7 @@ module EndoBeams
     include("predictor.jl")
     include("corrector.jl")
     include("utils_bcs_and_loads.jl")
+    include("IO/write_data_timestep.jl")
     include("IO/write_output_files.jl")
     include("utils_solver.jl")
 

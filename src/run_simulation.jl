@@ -24,15 +24,18 @@ function run_simulation!(conf::SimulationConfiguration, params::SimulationParams
     # Initialize stress/strain VM storage for tracking stress and strain values
     stress_strain_storage = StressStrainStorage()
 
+    # Initialize internal force/moment storage for tracking converged nodal internal loads
+    internal_force_moment_storage = InternalForceMomentStorage()
+
     # Setup the linear solver 
     solver = init(:MKL)     
 
     # Initialize simulation time variables
-    tⁿ = 0.0                     # Current simulation time
+    tⁿ = 0.0                    # Current simulation time
     write_t = 0.0               # Time of the last output write
     start = time()              # Start time for computational timing
-    write_counter = 0         # Counter for output writes
-    Δt = initial_timestep                 # Initial time step size
+    write_counter = 0           # Counter for output writes
+    Δt = initial_timestep       # Initial time step size
     successive_success_it = 0   # Consecutive successful iterations counter
     step = 1                    # Simulation step counter
 
@@ -110,6 +113,7 @@ function run_simulation!(conf::SimulationConfiguration, params::SimulationParams
             rotation_storage=rotation_storage,
             displacement_storage=displacement_storage,
             stress_strain_storage=stress_strain_storage,
+            internal_force_moment_storage=internal_force_moment_storage,
         )
 
         # Advance to the next time step
@@ -135,7 +139,10 @@ function run_simulation!(conf::SimulationConfiguration, params::SimulationParams
     # Write stress/strain VM data to CSV file at the end of simulation
     stress_strain_output_file = joinpath(output_dir, "stress_strain_data.csv")
     write_stress_strain_data(stress_strain_storage, stress_strain_output_file)
-    
+
+    # Write internal force/moment data to CSV file at the end of simulation
+    internal_force_moment_output_file = joinpath(output_dir, "internal_force_moment_data.csv")
+    write_internal_force_moment_data(internal_force_moment_storage, internal_force_moment_output_file)
     
     # Show sections time
     if record_timings

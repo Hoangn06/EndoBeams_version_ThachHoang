@@ -24,7 +24,7 @@ using Plots
 
 
 # Define node positions and connectivity for beams
-num_elements = 100
+num_elements = 480
 nnodes = num_elements + 1    # Total number of nodes
 beam_length = 20            # Total length of the beam
 positions = zeros(nnodes, 3)  # Initialize position matrix
@@ -75,7 +75,7 @@ plane
 )
 
 beams = SuperElasticBeams(nodes, connectivity, E, ν, ρ, εL, sigma_S_AS, sigma_F_AS, sigma_S_SA, sigma_F_SA, sigma_c_SAS, Eᴹ, radius, damping)
-
+#beams = ElasticBeams(nodes, connectivity, E, ν, ρ, radius, damping)
 #----------------------------------
 # BEAMS CONFIGURATION DEFINITIONS
 #----------------------------------
@@ -85,13 +85,13 @@ beams = SuperElasticBeams(nodes, connectivity, E, ν, ρ, εL, sigma_S_AS, sigma
 end_time = 40.0              # End time (s): loading 0→20s, unloading 20→40s
 t_peak   = 20.0              # Time at peak force
 loaded_dofs = [(nnodes-1)*6 + 1]        # Tip node: X displacement (transverse force)
-force_max = 20.0                        # Maximum force (N)
+force_max = 100                        # Maximum force (N)
 force_function(t, i) = t <= t_peak ? force_max * t / t_peak : force_max * (end_time - t) / t_peak   # 0→20N→0N
 concentrated_force = ConcentratedForce(force_function, loaded_dofs)  
 
 # Degrees of freedom (DOFs) definition
 ndofs = nnodes * 6                     # Total number of DOFs (6 per node for displacement and rotation)
-blocked_dofs = 1:6
+blocked_dofs = [1:3;4:6]
 encastre = Encastre(blocked_dofs)
 
 # Beam configuration struct initialization
@@ -110,7 +110,7 @@ conf = BeamsConfiguration(nodes, beams, Loads(concentrated_force), BoundaryCondi
 initial_timestep = 1e-1  # Initial time step size
 min_timestep = 1e-8    # Minimum allowed time step
 max_timestep = 1e-1  # Maximum allowed time step (could be adjusted based on system behavior)
-output_timestep = 1E-2   # Time step for output plotting or visualization
+output_timestep = 1.0    # Time step for output plotting or visualization
 simulation_end_time = 39.9 # End time — matches force_function definition above
 
 # Convergence criteria for the solver
@@ -120,7 +120,7 @@ max_iterations = 20      # Maximum number of iterations for the solver
 
 # Store solver parameters in a structured Params object
 params = SimulationParams(;
-α, β, γ, initial_timestep, min_timestep, max_timestep, output_timestep, simulation_end_time, tolerance_residual, tolerance_displacement, max_iterations, output_dir = "test/output3D"
+α, β, γ, initial_timestep, min_timestep, max_timestep, output_timestep, simulation_end_time, tolerance_residual, tolerance_displacement, max_iterations, output_dir = "validation/output3D"
 , verbose = true)
 
 #----------------------------------------------------
@@ -138,7 +138,7 @@ println("Simulation finished")
 
 # Read displacement data from CSV file
 # Format: Time, DispX1, DispY1, DispZ1, DispX2, DispY2, DispZ2, ...
-csv_file = joinpath("test", "output3D", "displacement_data.csv")
+csv_file = joinpath("validation", "output3D", "displacement_data.csv")
 displacement_data, header = readdlm(csv_file, ',', header=true)
 
 # Column for X displacement of tip node
@@ -148,20 +148,20 @@ times         = Float64.(displacement_data[:, 1])
 displacements = Float64.(displacement_data[:, disp_x_col])
 
 # Reconstruct the applied force at each output time
-forces = [t <= t_peak ? force_max * t / t_peak : force_max * (simulation_end_time - t) / t_peak for t in times]
+forces = [t <= t_peak ? force_max * t / t_peak : force_max * (end_time - t) / t_peak for t in times]
 
 # Force vs X-displacement plot
 p = plot(displacements, forces,
-    xlabel="X Displacement of tip node $tracked_node (mm)",
+    xlabel="Displacement of tip node (mm)",
     ylabel="Force (N)",
-    title="Cantilever — Force vs Tip X-Displacement",
+    title="Cantilever — Force vs Tip Displacement",
     linewidth=2,
     grid=true,
     legend=false,
     dpi=300,
 )
 
-plot_file = joinpath("test", "output3D", "force_vs_displacement.png")
+plot_file = joinpath("validation", "output3D", "force_vs_displacement.png")
 savefig(p, plot_file)
 println("Plot saved to: $plot_file")
 display(p)

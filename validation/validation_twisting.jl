@@ -12,7 +12,7 @@ using Plots
 #----------------------------------------------------
 
 # Define node positions and connectivity for beams
-n_elements = 1000                        # Number of beam elements
+n_elements = 30                        # Number of beam elements
 nnodes = n_elements + 1                # Total number of nodes
 y_coords = range(0.0, 0.1, length=nnodes)
 positions = hcat(zeros(nnodes), collect(y_coords), zeros(nnodes))
@@ -33,14 +33,14 @@ plane = "xy"                         # Plane of the problem
 E = 60000                         # Young's modulus (MPa)
 ν = 0.3                              # Poisson's ratio
 ρ = 6.5e-9                                # Density (tonnes/mm³)
-radius = 0.035                         # Beam radius (mm)
-damping = 0                          # Damping coefficient
-εL = 0.055                           # Max transformation strain
-sigma_S_AS = 400                  # Start stress for A→S (MPa)
-sigma_F_AS = 500             # Finish stress for A→S (MPa)
+radius = 0.745                         # Beam radius (mm)
+damping = 0.0                          # Damping coefficient
+εL = 0.075/sqrt(2/3)                          # Max transformation strain
+sigma_S_AS = 520                    # Start stress for A→S (MPa)
+sigma_F_AS = 600                    # Finish stress for A→S (MPa)
 sigma_S_SA = 300                    # Start stress for S→A (MPa)
-sigma_F_SA = 200                 # Finish stress for S→A (MPa)
-sigma_c_SAS = 400                     # Critical stress for SAS transformation (MPa)
+sigma_F_SA = 200                    # Finish stress for S→A (MPa)
+sigma_c_SAS = 520                     # Critical stress for SAS transformation (MPa)
 Eᴹ = 60000                         # Martensite Young's modulus (MPa)
 
 # Build nodes and beams
@@ -62,7 +62,7 @@ beams = SuperElasticBeams(nodes, connectivity, E, ν, ρ, εL, sigma_S_AS, sigma
 
 # External force
 loaded_dofs = [(nnodes - 1) * 6 + 5]   # Rotation Y DOF at the tip node
-force_function(t,i) = t <= 5 ? 0.01*t : 0.01*(10 - t)  # Loading until t=5, then unloading back to 0 at t=10
+force_function(t,i) = t <= 5 ? 100*t : 100*(10 - t)  # Loading until t=5, then unloading back to 0 at t=10
 concentrated_force = ConcentratedForce(force_function, loaded_dofs)  
 
 # Degrees of freedom (DOFs) definition
@@ -121,7 +121,7 @@ times = Float64.(rotation_data[:, 1])  # Time column
 rotations = Float64.(rotation_data[:, 1 + (nnodes - 1) * 3 + 2])  # Rotation Y at tip node
 
 # Calculate moment: piecewise function 
-moments = [t <= 5 ? 0.01*t : 0.01*(10 - t) for t in times] 
+moments = [t <= 5 ? 100*t : 100*(10 - t) for t in times] 
 
 # Create moment vs time plot
 p_moment_time = plot(times, moments,
